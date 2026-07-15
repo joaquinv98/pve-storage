@@ -7,7 +7,7 @@ control.
 
 ## Functional and safety coverage
 
-- Full `pve-storage` build and upstream tests: API verification, 200 plugin
+- Full `pve-storage` build and upstream tests: API verification, 203 plugin
   tests, 91 bandwidth-limit tests, 35 OVF tests, 183 access tests, and 74 Ceph
   parser tests passed.
 - Thin allocation, discard reclamation, snapshot, rollback with exact checksum
@@ -17,20 +17,39 @@ control.
 - Target configfs loss was reconciled from durable ZFS identity properties.
 - Controllers connected without the configured data interface were replaced
   one at a time without taking the storage offline.
+- Simultaneous allocations issued by both PVE nodes received distinct NSIDs
+  and UUIDs. The NSID allocator's `flock` runs on the common target host, not
+  on the initiators, so it serializes the cluster-wide ZFS/configfs mutation.
+- A live namespace was driven through real target ANA transitions
+  `optimized -> non-optimized -> inaccessible -> optimized` on path A while
+  path B remained optimized. `fio` wrote 7.23 GB with zero errors or short I/O.
 - Live migration succeeded in both directions under guest I/O. The reverse
   migration also succeeded with one destination path degraded.
 - A real HA node-loss test used QDevice quorum and watchdog self-fencing. The
   surviving node waited for fencing, activated the namespace by its unchanged
   UUID, and restarted the guest with both paths live and no failed block
   operations. End-to-end recovery took 245 seconds with the lab's default HA
-  timers.
+  timers. This is recovery evidence, not an accepted RTO: 245 seconds needs an
+  explicit workload/SLA decision.
+- A separate live split-brain test isolated Corosync and QDevice from one node
+  while leaving both NVMe/TCP paths and both PVE nodes powered. The isolated
+  node lost quorum and self-fenced. QEMU was sampled every 200 ms on both
+  nodes; the survivor did not start the guest until 79.245 seconds after the
+  last source QEMU observation, with the same namespace UUID and no overlap.
 - Blocking only the SSH management path left both NVMe/TCP controllers live and
   caused a test allocation to fail without creating a residual zvol. Capacity
   status was intentionally reported inactive until management connectivity
   returned; existing guest I/O remained on the independent data paths.
 - A single-path loss kept guest I/O progressing. A 15-second loss of both paths
   produced backpressure without block errors; I/O resumed and checksum
-  verification passed after connectivity returned.
+  verification passed after connectivity returned. With the default
+  `ctrl_loss_tmo=600` and no fast-fail value, a permanent loss may queue I/O
+  for up to ten minutes; this is a policy trade-off, not a universal virtue.
+- The new optional `nvme-fast-io-fail-tmo` policy was then set to 5 seconds on
+  both controllers. Under a permanent dual-path blackhole, `fio` received the
+  expected `EIO` and exited 13.833 seconds after injection (keep-alive/failure
+  detection plus fast-fail), rather than waiting for the 600-second controller
+  loss timeout. Both paths recovered live and the scratch volume was removed.
 
 ## Performance sample
 

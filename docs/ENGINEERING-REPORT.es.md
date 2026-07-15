@@ -21,10 +21,11 @@ serie de patches a `pve-devel`.
 
 La validación del lab cubrió lifecycle ZFS, thin/discard, snapshots, rollback,
 templates, linked clones, resize offline, migración en vivo, pérdida de paths,
-pérdida simultánea de los dos paths, reconstrucción de configfs, caída del
-control-plane SSH, deactivación segura y failover HA con fencing real. El build
-final ejecutó 590 assertions automatizadas además de las pruebas integradas en
-el clúster.
+pérdida simultánea de los dos paths, transiciones ANA reales, asignación
+concurrente de NSID desde dos nodos, reconstrucción de configfs, caída del
+control-plane SSH, deactivación segura y dos clases de failover HA: muerte de
+nodo y partición viva de Corosync. El build final ejecutó 593 assertions
+automatizadas además de las pruebas integradas en el clúster.
 
 El resultado es apto como candidato para una calificación enterprise. No sería
 honesto llamarlo “certificado para producción” solamente con virtualización
@@ -46,6 +47,7 @@ El backend soporta:
 - status y listado de volúmenes;
 - storage compartido y migración en vivo;
 - multipath nativo con una conexión por portal/interfaz;
+- política explícita queue-versus-fail para pérdida total de paths;
 - autenticación DH-HMAC-CHAP por Host NQN;
 - reconciliación declarativa del target desde propiedades ZFS.
 
@@ -69,15 +71,18 @@ El plugin define el schema `zfsnvme` y sus propiedades:
 - lista de portales NVMe/TCP;
 - lista posicional de interfaces locales;
 - política de I/O multipath;
-- keep-alive, reconnect y controller-loss timeouts;
+- keep-alive, reconnect, controller-loss y fast-I/O-fail timeouts;
 - cantidad opcional de I/O queues;
 - identidad y secreto DH-HMAC-CHAP.
 
 El proveedor `PVE::Storage::LunCmd::NVMET` contiene un helper remoto estricto
 para configfs. Las mutaciones se serializan con `flock` sobre
 `/run/lock/pve-nvmet.lock`, validan todos los valores antes de escribir y son
-idempotentes. `reconcile()` deriva el target deseado del inventario ZFS y puede
-reconstruirlo aunque se pierda el estado efímero de configfs.
+idempotentes. Es importante el contexto: ese helper y el lock se ejecutan por
+SSH en el servidor target común, no localmente en cada initiator. Por lo tanto,
+dos allocates simultáneos desde distintos nodos compiten por el mismo lock y no
+por dos locks aislados. `reconcile()` deriva el target deseado del inventario
+ZFS y puede reconstruirlo aunque se pierda el estado efímero de configfs.
 
 ### 3.2 Identidad durable
 
@@ -104,6 +109,23 @@ Si un controller existe por la interfaz equivocada, se reemplaza de a un path.
 El storage no se baja para corregir esa desviación. Como hardening final, cada
 nodo verifica primero que todas las interfaces configuradas existan; una
 enumeración distinta falla en preflight antes de reconciliar el target.
+
+La pérdida total de paths deja de tener una semántica implícita. Con
+`nvme-fast-io-fail-tmo` sin definir, Linux mantiene I/O en cola mientras intenta
+reconectar hasta `nvme-ctrl-loss-tmo` (600 segundos por default). Esto favorece
+continuidad ante cortes recuperables, pero puede congelar una aplicación diez
+minutos ante una falla permanente. Si el administrador define el fast-fail, el
+plugin lo valida contra el controller-loss timeout, lo persiste en el JSON de
+libnvme y lo pasa al connect. La UI explica el trade-off; no elige un SLA por el
+usuario.
+
+No se asumió ANA solamente porque había dos controllers. En el target se
+modificó el `ana_state` real de un namespace en actividad: path A pasó por
+`optimized`, `non-optimized`, `inaccessible` y otra vez `optimized`, mientras
+path B quedó optimizado. El log ANA y sysfs confirmaron los cambios y el kernel
+redirigió I/O sin errores. El diseño actual usa ambos paths optimizados en
+operación normal; no depende de una topología active/passive, pero tolera los
+estados ANA estándar cuando el target los anuncia.
 
 ### 3.4 Autenticación y secretos
 
@@ -180,6 +202,16 @@ rebasear sobre el source exacto de PVE, ejecutar toda la matriz, construir una
 versión superior a la oficial en un APT privado firmado y desplegar rolling
 con el nodo drenado.
 
+El empaquetado también quedó sujeto a un gate de integridad. Un primer artefacto
+de `pve-manager` construido desde un worktree Windows conservó CRLF en scripts
+sin extensión y produjo un shebang inválido (`/usr/bin/perl\r`) al instalarlo
+en el primer nodo del lab. El despliegue se detuvo antes del segundo nodo, los
+daemons se recuperaron sin afectar QEMU y el paquete se descartó. La corrección
+no fue un parche postinst: el artefacto final se reconstruyó desde un
+`git archive` canónico, preservando LF y modos Git, y se verificaron los 35
+entrypoints del `.deb`; cero tienen CRLF en el shebang. Esa verificación debe
+quedar en CI porque el source correcto no garantiza un artefacto correcto.
+
 ## 5. Topología de validación
 
 Target `kbuild01`:
@@ -215,11 +247,11 @@ El build final desde el commit publicado ejecutó:
 | --- | ---: | --- |
 | disk tests | 7 | PASS |
 | bandwidth-limit | 91 | PASS |
-| plugin tests, incluido `zfsnvme` | 200 | PASS |
+| plugin tests, incluido `zfsnvme` | 203 | PASS |
 | OVF | 35 | PASS |
 | volume access | 183 | PASS |
 | parser Ceph | 74 | PASS |
-| Total | 590 | PASS |
+| Total | 593 | PASS |
 
 Además pasó la verificación del API Perl. Los tests ZFS/LVM del harness que
 requieren root se saltearon en ese runner no privilegiado; la integración ZFS
@@ -227,8 +259,10 @@ real se cubrió directamente contra `tank/pve-nvme`.
 
 Se agregaron casos específicos para parsing estricto, correspondencia portal
 /interfaz, secretos, ownership, identidad, conflicto de NQN, rechazo de resize
-online, preflight de interfaz ausente, deactivación con un QEMU simulado y
-remoción con dataset no vacío.
+online, preflight de interfaz ausente, deactivación con un QEMU simulado,
+remoción con dataset no vacío, propagación de `fast_io_fail_tmo`, rechazo de un
+fast-fail mayor que un controller-loss finito y aceptación con reconnect
+infinito.
 
 ## 7. Pruebas funcionales integradas
 
@@ -249,28 +283,54 @@ Se verificaron en el clúster:
 - path estable por UUID en ambos nodos;
 - activación en el destino antes de que QEMU abra el disco.
 
+Además se lanzaron dos `pvesm alloc` en paralelo, uno desde cada nodo, para los
+VMID scratch 9301 y 9302. El target asignó NSID 3 y 2 respectivamente, con UUID
+distintos y propiedades ZFS/configfs concordantes. Ambos volúmenes se liberaron
+sin residuos. La prueba confirma empíricamente la serialización cluster-wide
+del helper remoto y corrige la interpretación de que
+`/run/lock/pve-nvmet.lock` sería un lock local de cada PVE.
+
 ## 8. Migración y HA
 
 La migración en vivo se ejecutó en ambos sentidos bajo I/O del guest. También
 se migró hacia un destino que tenía un path degradado. En todos los casos el
 destino resolvió el mismo UUID de namespace antes de abrirlo.
 
-Para la prueba HA se creó el scratch VMID 9210, se lo puso bajo HA y se detuvo
-Corosync en `pvenest01`. El watchdog reinició el nodo; QDevice mantuvo quorum y
-el master sobreviviente esperó confirmación de fencing antes de iniciar la VM.
+Se hicieron dos pruebas HA distintas.
 
-Resultados:
+La primera usó el scratch VMID 9210 y una detención de Corosync en
+`pvenest01`. El watchdog reinició el nodo; QDevice mantuvo quorum y el master
+sobreviviente esperó confirmación de fencing antes de iniciar la VM. La falla
+se inyectó a las 03:56:58 UTC y el guest apareció en `pvenest02` a las
+04:01:03 UTC: 245 segundos end-to-end con los timers default. El UUID fue el
+mismo, los dos paths terminaron `live`, no hubo operaciones de bloque fallidas
+ni doble escritor observado. Es un PASS de seguridad y recuperación, pero no
+una certificación de SLA: cuatro minutos es una magnitud que cada workload debe
+aceptar o reducir mediante tuning y nueva validación.
 
-- inicio de la falla: 03:56:58 UTC;
-- VM iniciada en `pvenest02`: 04:01:03 UTC;
-- recovery end-to-end: 245 segundos con los timers default del lab;
-- mismo namespace UUID en el destino;
-- dos paths `live` al finalizar;
-- cero failed block operations;
-- sin ventana de doble escritor observada.
+La segunda prueba atacó el caso de integridad más adversarial. El scratch VMID
+9211 quedó ejecutando en `pvenest01`; una regla persistente aisló a ese nodo del
+peer de Corosync y del QDevice, pero no cortó management ni ninguno de los dos
+paths NVMe/TCP. Los dos hosts siguieron encendidos y el nodo aislado todavía
+tenía acceso físico al namespace. QEMU se muestreó cada 200 ms en ambos lados.
 
-El VMID 9210 y su zvol fueron purgados después de la prueba. VM 8888 siguió
-corriendo en el storage de control.
+Resultados de la partición viva:
+
+- inyección: epoch `1784121138.316814499`;
+- última observación de QEMU en el origen: `1784121189.6509376`;
+- primera observación de QEMU en el sobreviviente: `1784121268.8958738`;
+- recovery desde la partición: 130.579 segundos;
+- separación entre último writer origen y primer writer destino: 79.245 s;
+- overlap observado: falso;
+- mismo UUID de namespace: `9e36d361-2dd0-4b3d-a426-c4bf8caa8967`;
+- dos paths `live` en el destino.
+
+La secuencia prueba que la pérdida de quorum provocó self-fence antes de que el
+sobreviviente abriera el namespace. El muestreo de procesos no sustituye un
+analizador de escrituras a nivel de target, pero con 200 ms de resolución y un
+gap de 79.245 s da evidencia fuerte de ausencia de dual writer en este lab.
+Los VMID 9210/9211, sus zvols, reglas y unidades temporales fueron purgados. La
+VM 8888 siguió corriendo en el storage de control.
 
 ## 9. Fault injection y reliability
 
@@ -284,7 +344,34 @@ volvió `live` y el namespace continuó siendo el mismo.
 
 Se cortaron ambos paths durante 15 segundos. La capa de bloques aplicó
 backpressure; no devolvió errores al guest. Al recuperar conectividad, el I/O
-continuó y el checksum final fue válido.
+continuó y el checksum final fue válido. Ese PASS sólo prueba una interrupción
+menor que el timeout. Con `nvme-ctrl-loss-tmo=600` y fast-fail desactivado, una
+pérdida permanente puede mantener I/O en cola durante hasta diez minutos. Para
+algunos servicios eso preserva continuidad; para otros, una pausa de diez
+minutos es peor que devolver error y activar recuperación de aplicación.
+
+Por eso se implementó y validó `nvme-fast-io-fail-tmo`. Con valor 5 en ambos
+controllers y controller-loss 600, se blackholearon los dos flujos TCP mientras
+`fio` hacía randwrite directo de 16 KiB con iodepth 32. El kernel devolvió
+`EIO`, `fio` salió con rc 1/error 5 a los 13.833 segundos desde el corte y había
+escrito 1,525,104,640 bytes antes del error. El tiempo incluye keep-alive y
+detección de pérdida, no solamente los cinco segundos de fast-fail. Al retirar
+las reglas, ambos controllers volvieron `live`; el scratch fue liberado y la
+configuración se restauró al default `off`.
+
+La conclusión no es que fail-fast sea siempre mejor: ahora el administrador
+puede seleccionar conscientemente queue o fail según RTO, semántica del guest y
+capacidad de recuperación del workload.
+
+### Transiciones ANA
+
+Con `fio` activo se cambió el estado ANA del path A en el target:
+`optimized -> non-optimized -> inaccessible -> optimized`; path B permaneció
+optimizado. `nvme ana-log` reflejó estado y change count, y el multipath nativo
+redirigió las operaciones. Se escribieron 7,229,800,448 bytes, promedio
+206,536,221 B/s y 3151.49 IOPS, con cero errores, cero short I/O y p99 de
+latencia de 19,791,872 ns. Esto valida ANA real, no sólo failover por caída de
+interfaz.
 
 ### Interfaz equivocada
 
@@ -349,14 +436,21 @@ Al cierre:
 - el target tiene un namespace durable, `base-9200-disk-0`, y dos ACL de Host
   NQN;
 - `tank` está ONLINE;
-- no quedó el scratch VMID 9210.
+- no quedaron los scratch VMID 9210, 9211, 9301, 9302, 9303 ni 9304.
 
 Paquetes instalados en ambos nodos:
 
-- `libpve-storage-perl 9.1.6+neatech3`;
-- `pve-manager 9.2.4+neatech1`;
-- `pve-docs 9.2.3+neatech4`;
-- `pve-doc-generator 9.2.3+neatech4`.
+- `libpve-storage-perl 9.1.6+neatech4`;
+- `pve-manager 9.2.4+neatech4`;
+- `pve-docs 9.2.3+neatech5`;
+- `pve-doc-generator 9.2.3+neatech5`.
+
+SHA-256 de los artefactos desplegados:
+
+- backend: `26a56dab4ea7613f3d09dcf10353407ad966cb8fa3e25d9bb9cc0d9a41f02711`;
+- manager: `4ed648517846d1fa3bba0629466ce351ae1f130bebb85179fa46f123e1ff0a5d`;
+- docs: `05b8d7b682b9adf28e99c386aea6e950813e1caf5777949c1d013f5345e9487d`;
+- doc generator: `aa217bb92ee07c78aa1505c494f128ef342ccaf4e465223c9c08fd0c7ca1c792`.
 
 ## 12. Qué falta antes de una certificación enterprise
 
@@ -365,7 +459,8 @@ entorno final:
 
 1. soak de al menos 72 horas con mezcla read/write, sync/async, discard y
    snapshots sobre el hardware real;
-2. latencias p50/p95/p99/p99.9 y recovery time bajo carga sostenida;
+2. latencias p50/p95/p99/p99.9 y recovery time bajo carga sostenida, con un
+   RTO aceptado explícitamente para HA y pérdida total de paths;
 3. pérdida de NIC, cable, switch, VLAN y portal físico;
 4. reboot del target y de cada initiator;
 5. pool casi lleno y completamente lleno;

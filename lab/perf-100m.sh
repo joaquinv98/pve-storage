@@ -37,7 +37,7 @@ wait_for_path() {
     local address=$1
     local attempt
 
-    for attempt in $(seq 1 60); do
+    for ((attempt = 0; attempt < 60; attempt++)); do
         if nvme list-subsys 2>/dev/null |
             grep -F "traddr=$address" |
             grep -q ' live$'; then

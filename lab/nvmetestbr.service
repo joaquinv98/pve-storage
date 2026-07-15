@@ -1,0 +1,15 @@
+[Unit]
+Description=Lab-only isolated bridge for NVMe/TCP HA guest
+After=network.target
+Before=pve-ha-lrm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/sbin/ip link add nvmetestbr type bridge
+ExecStart=-/usr/sbin/ip addr add 172.31.92.1/24 dev nvmetestbr
+ExecStart=/usr/sbin/ip link set nvmetestbr up
+ExecStop=/usr/sbin/ip link delete nvmetestbr
+
+[Install]
+WantedBy=multi-user.target

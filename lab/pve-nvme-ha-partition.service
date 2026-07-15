@@ -1,0 +1,12 @@
+[Unit]
+Description=Lab-only persistent Corosync and QDevice partition
+Before=corosync.service corosync-qdevice.service pve-ha-lrm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ha-corosync-partition apply 192.168.34.16 192.168.34.11 pve-nvme-ha-partition
+ExecStop=/usr/local/sbin/ha-corosync-partition remove 192.168.34.16 192.168.34.11 pve-nvme-ha-partition
+
+[Install]
+WantedBy=multi-user.target
