@@ -502,8 +502,15 @@ idénticos a los branches de submission y no hay errores de whitespace. Los
 mensajes respetan el límite de 70 columnas y las cover letters documentan
 arquitectura, límites y matriz de validación.
 
-El draft permanece deliberadamente sin `Signed-off-by`. Ese trailer certifica
-autoría y no debe agregarse automáticamente. Antes del envío, Joaquin Varela
-debe confirmar la identidad exacta, el Harmony CLA individual o de entidad y
-el SMTP de `git send-email`. Recién entonces corresponde regenerar con
-`--signoff`, hacer un dry-run al correo propio y enviar la serie pública.
+Joaquin Varela confirmó la identidad de contribución como
+`Joaquin Varela <joaquinvarela@neatech.ar>`. Las tres series fueron regeneradas
+con ese autor y el `Signed-off-by` coincidente. Una segunda aplicación completa
+con `git am` sobre worktrees nuevos produjo exactamente los mismos tree hashes
+que los branches de submission. También se verificaron los 12 mensajes de las
+tres series con un dry-run real de `git send-email`.
+
+Antes del envío público queda completar y remitir el Harmony CLA individual a
+`office@proxmox.com`, suscribir la identidad de contribución a `pve-devel` y
+configurar el SMTP autenticado. El workspace incluye el formulario oficial,
+dos emails listos para CLA y RFC, y un helper que envía las series firmadas sin
+guardar credenciales.

@@ -429,11 +429,12 @@
     "canonical_channel": "pve-devel@lists.proxmox.com",
     "format": "git send-email patch series",
     "harmony_cla_required": true,
-    "cla_status": "not confirmed by author",
-    "draft_patch_series_prepared": true,
-    "draft_patch_series_signed": false,
-    "draft_patch_series_apply_check": "PASS",
-    "draft_series": {
+    "cla_status": "official form downloaded; not yet signed or submitted",
+    "submission_identity": "Joaquin Varela <joaquinvarela@neatech.ar>",
+    "patch_series_prepared": true,
+    "patch_series_signed": true,
+    "patch_series_apply_check": "PASS",
+    "signed_series": {
       "pve-storage_commits": 4,
       "pve-manager_commits": 2,
       "pve-docs_commits": 3,
@@ -441,8 +442,7 @@
     },
     "ready_to_send": false,
     "send_blockers": [
-      "confirmar identidad exacta para Signed-off-by",
-      "confirmar Harmony CLA",
+      "firmar y enviar el Harmony CLA",
       "configurar SMTP/git send-email"
     ]
   },
