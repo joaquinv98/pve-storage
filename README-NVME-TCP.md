@@ -53,6 +53,13 @@ for the threat model.
 hosts from writing the same guest disk. Enterprise deployment requires tested
 fencing, quorum, time synchronization, backups, and recovery procedures.
 
+All-path failure policy is explicit. By default, `nvme-fast-io-fail-tmo` is
+unset and the kernel can queue guest I/O for the configured
+`nvme-ctrl-loss-tmo` (600 seconds by default), favoring transparent recovery.
+Set the optional fast-I/O-fail timeout when a workload must receive a prompt
+block error instead of a long stall. The backend rejects a fail-fast timeout
+longer than a finite controller-loss timeout.
+
 ## Current limitation
 
 Online block-device resize is rejected before the zvol is changed. The Proxmox

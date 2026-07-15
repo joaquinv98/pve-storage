@@ -245,6 +245,22 @@ is_deeply(
     'nvme connect is explicitly bound to the configured data interface',
 );
 
+PVE::Storage::ZFSNVMePlugin::_connect_portal(
+    '/run/pve-storage/test.json',
+    {
+        subsysnqn => 'nqn.2026-07.example:test',
+        'nvme-ctrl-loss-tmo' => 60,
+        'nvme-fast-io-fail-tmo' => 15,
+    },
+    { address => '10.90.2.11', port => 4420, host_iface => 'ens21' },
+);
+my $connect_args = join(' ', @connect_cmd);
+like(
+    $connect_args,
+    qr/--fast_io_fail_tmo 15/,
+    'configured fast I/O fail timeout is passed to nvme connect',
+);
+
 $nvme_mock->redefine(
     zfs_request => sub {
         my ($class, $config, $timeout, $method, @params) = @_;
@@ -328,6 +344,32 @@ eval {
     );
 };
 is($@, '', 'check_config accepts a valid partial update');
+
+eval {
+    PVE::Storage::ZFSNVMePlugin::_validate_fail_fast_timeout(
+        {
+            'nvme-ctrl-loss-tmo' => 30,
+            'nvme-fast-io-fail-tmo' => 31,
+        },
+        600,
+    );
+};
+like(
+    $@,
+    qr/must not exceed nvme-ctrl-loss-tmo/,
+    'fast I/O fail timeout cannot outlive the controller loss timeout',
+);
+
+eval {
+    PVE::Storage::ZFSNVMePlugin::_validate_fail_fast_timeout(
+        {
+            'nvme-ctrl-loss-tmo' => -1,
+            'nvme-fast-io-fail-tmo' => 30,
+        },
+        600,
+    );
+};
+is($@, '', 'fast I/O fail remains valid with infinite controller reconnect');
 
 {
     no warnings 'redefine';

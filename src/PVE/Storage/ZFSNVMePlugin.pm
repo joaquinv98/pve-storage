@@ -216,6 +216,14 @@ sub properties {
             maximum => 86400,
             default => 600,
         },
+        'nvme-fast-io-fail-tmo' => {
+            description =>
+                "Optional time before failing I/O on a reconnecting NVMe controller. Unset queues I/O until controller loss timeout.",
+            type => 'integer',
+            minimum => 0,
+            maximum => 86400,
+            optional => 1,
+        },
         'nvme-nr-io-queues' => {
             description => "Number of NVMe/TCP I/O queues per controller.",
             type => 'integer',
@@ -240,12 +248,27 @@ sub options {
         'nvme-keep-alive-tmo' => { optional => 1 },
         'nvme-reconnect-delay' => { optional => 1 },
         'nvme-ctrl-loss-tmo' => { optional => 1 },
+        'nvme-fast-io-fail-tmo' => { optional => 1 },
         'nvme-nr-io-queues' => { optional => 1 },
         nodes => { optional => 1 },
         disable => { optional => 1 },
         content => { optional => 1 },
         bwlimit => { optional => 1 },
     };
+}
+
+sub _validate_fail_fast_timeout {
+    my ($config, $default_ctrl_loss_tmo) = @_;
+
+    my $fast = $config->{'nvme-fast-io-fail-tmo'};
+    return if !defined($fast);
+
+    my $ctrl = $config->{'nvme-ctrl-loss-tmo'};
+    $ctrl = $default_ctrl_loss_tmo if !defined($ctrl);
+    return if !defined($ctrl) || $ctrl < 0;
+
+    die "nvme-fast-io-fail-tmo must not exceed nvme-ctrl-loss-tmo\n"
+        if $fast > $ctrl;
 }
 
 sub check_config {
@@ -266,6 +289,7 @@ sub check_config {
     } elsif (defined($config->{'nvme-host-ifaces'})) {
         parse_nvme_host_ifaces($config->{'nvme-host-ifaces'});
     }
+    _validate_fail_fast_timeout($config, $create ? 600 : undef);
     return $class->SUPER::check_config($section_id, $config, $create, $skip_schema_check);
 }
 
@@ -376,6 +400,7 @@ sub on_update_hook_full {
     delete @prospective{@$delete} if $delete;
     verify_nvme_nqn($prospective{subsysnqn});
     _configured_portals(\%prospective);
+    _validate_fail_fast_timeout(\%prospective, 600);
     _assert_unique_target($storeid, \%prospective);
 
     my $old_key = file_read_firstline(_secret_path($storeid));
@@ -434,6 +459,9 @@ sub _write_runtime_config {
                 keep_alive_tmo => $scfg->{'nvme-keep-alive-tmo'} // 5,
                 reconnect_delay => $scfg->{'nvme-reconnect-delay'} // 2,
                 ctrl_loss_tmo => $scfg->{'nvme-ctrl-loss-tmo'} // 600,
+                (defined($scfg->{'nvme-fast-io-fail-tmo'})
+                    ? (fast_io_fail_tmo => $scfg->{'nvme-fast-io-fail-tmo'})
+                    : ()),
                 ($scfg->{'nvme-nr-io-queues'}
                     ? (nr_io_queues => $scfg->{'nvme-nr-io-queues'})
                     : ()),
@@ -595,6 +623,9 @@ sub _connect_portal {
         '--ctrl-loss-tmo',
         $scfg->{'nvme-ctrl-loss-tmo'} // 600,
     ];
+    if (defined(my $fast = $scfg->{'nvme-fast-io-fail-tmo'})) {
+        push @$cmd, '--fast_io_fail_tmo', $fast;
+    }
     if (my $queues = $scfg->{'nvme-nr-io-queues'}) {
         push @$cmd, '--nr-io-queues', $queues;
     }
