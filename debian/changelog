@@ -1,3 +1,17 @@
+libpve-storage-perl (9.1.6+neatech3) trixie; urgency=medium
+
+  * require an empty owned dataset before cluster-wide storage removal
+
+ -- Joaquin Varela <joaquinv98@users.noreply.github.com>  Wed, 15 Jul 2026 01:10:00 -0300
+
+libpve-storage-perl (9.1.6+neatech2) trixie; urgency=medium
+
+  * reject missing per-node NVMe interfaces before target reconciliation
+
+  * refuse subsystem disconnect while a namespace is in use
+
+ -- Joaquin Varela <joaquinv98@users.noreply.github.com>  Wed, 15 Jul 2026 01:05:00 -0300
+
 libpve-storage-perl (9.1.6+neatech1) trixie; urgency=medium
 
   * add native ZFS over NVMe/TCP storage with multipath and DH-HMAC-CHAP
@@ -3246,4 +3260,3 @@ libpve-storage-perl (1.0-1) unstable; urgency=low
   * initial package
 
  -- Proxmox Support Team <support@proxmox.com>  Fri, 20 Mar 2009 11:13:19 +0100
-

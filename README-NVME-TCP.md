@@ -15,6 +15,9 @@ identity is persisted in ZFS user properties, and guests use the stable
 
 - The Proxmox node remains the control-plane client. ZFS and NVMe target
   changes execute on the storage server through the existing ZFS SSH channel.
+  Connected guest I/O does not depend on that SSH path, but capacity reporting
+  and lifecycle mutations do. Production deployments should point `server` at
+  a redundant management DNS name or VIP for the storage appliance.
 - The target implementation uses the Linux configfs `nvmet` API directly and
   serializes mutations with `/run/lock/pve-nvmet.lock`.
 - Each Proxmox node uses its own Host NQN and target ACL. `allow_any_host` is
@@ -23,10 +26,15 @@ identity is persisted in ZFS user properties, and guests use the stable
   through a protected libnvme JSON file, and never placed on a process command
   line.
 - Portals are paired positionally with explicit local interfaces. A controller
-  connected through the wrong interface is replaced one path at a time.
+  connected through the wrong interface is replaced one path at a time. Every
+  node verifies that all configured interfaces exist before changing target
+  state.
 - Existing zvols are not adopted implicitly. The provider checks ownership,
   subsystem NQN, namespace ID, UUID, model, and deterministic serial before it
   mutates target state.
+- Storage removal requires the owned ZFS dataset to be empty and also refuses
+  to disconnect the local subsystem while a process or kernel block holder is
+  using any namespace.
 
 ## Required production baseline
 

@@ -7,7 +7,7 @@ control.
 
 ## Functional and safety coverage
 
-- Full `pve-storage` build and upstream tests: API verification, 197 plugin
+- Full `pve-storage` build and upstream tests: API verification, 200 plugin
   tests, 91 bandwidth-limit tests, 35 OVF tests, 183 access tests, and 74 Ceph
   parser tests passed.
 - Thin allocation, discard reclamation, snapshot, rollback with exact checksum
@@ -19,6 +19,15 @@ control.
   one at a time without taking the storage offline.
 - Live migration succeeded in both directions under guest I/O. The reverse
   migration also succeeded with one destination path degraded.
+- A real HA node-loss test used QDevice quorum and watchdog self-fencing. The
+  surviving node waited for fencing, activated the namespace by its unchanged
+  UUID, and restarted the guest with both paths live and no failed block
+  operations. End-to-end recovery took 245 seconds with the lab's default HA
+  timers.
+- Blocking only the SSH management path left both NVMe/TCP controllers live and
+  caused a test allocation to fail without creating a residual zvol. Capacity
+  status was intentionally reported inactive until management connectivity
+  returned; existing guest I/O remained on the independent data paths.
 - A single-path loss kept guest I/O progressing. A 15-second loss of both paths
   produced backpressure without block errors; I/O resumed and checksum
   verification passed after connectivity returned.
