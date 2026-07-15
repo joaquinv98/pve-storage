@@ -133,6 +133,21 @@ sub _configured_portals {
     return $portals;
 }
 
+sub _local_iface_exists {
+    my ($iface) = @_;
+    return -d "/sys/class/net/$iface";
+}
+
+sub _validate_local_ifaces {
+    my ($portals) = @_;
+
+    for my $portal (@$portals) {
+        my $iface = $portal->{host_iface};
+        die "NVMe/TCP host interface '$iface' does not exist on this node\n"
+            if !_local_iface_exists($iface);
+    }
+}
+
 PVE::JSONSchema::register_format('pve-storage-nvme-nqn', \&verify_nvme_nqn);
 PVE::JSONSchema::register_format('pve-storage-nvme-portals', \&verify_nvme_portals);
 PVE::JSONSchema::register_format('pve-storage-nvme-host-ifaces', \&verify_nvme_host_ifaces);
@@ -382,8 +397,19 @@ sub on_update_hook_full {
 sub on_delete_hook {
     my ($class, $storeid, $scfg) = @_;
 
-    eval { $class->deactivate_storage($storeid, $scfg) };
-    log_warn("failed to disconnect NVMe storage '$storeid': $@") if $@;
+    # This hook runs only on the API node, while another cluster node can still
+    # be using the shared storage. Requiring an empty owned dataset makes the
+    # check cluster-wide without relying on remote process inspection.
+    my $volumes = $class->zfs_list_zvol($scfg);
+    my @volumes = sort keys %$volumes;
+    die "refusing to remove NVMe storage '$storeid': it still contains "
+        . join(', ', @volumes) . "\n"
+        if @volumes;
+
+    # Refuse the configuration removal while a VM or another process still has
+    # one of this subsystem's namespaces open. Otherwise deleting the storage
+    # could turn an administrative mistake into immediate guest I/O errors.
+    $class->deactivate_storage($storeid, $scfg);
     eval { PVE::Storage::LunCmd::NVMET::delete_target($scfg) };
     log_warn("failed to remove NVMe target for '$storeid': $@") if $@;
     _delete_secret($storeid);
@@ -460,6 +486,59 @@ sub _controller_states {
     }
     closedir($dh);
     return $states;
+}
+
+sub _namespace_devices {
+    my ($nqn) = @_;
+    my $devices = {};
+
+    opendir(my $dh, '/sys/class/nvme-subsystem') or return $devices;
+    while (defined(my $entry = readdir($dh))) {
+        next if $entry !~ /^nvme-subsys[0-9]+$/;
+        my $base = "/sys/class/nvme-subsystem/$entry";
+        my $subsys = file_read_firstline("$base/subsysnqn");
+        next if !defined($subsys) || $subsys ne $nqn;
+
+        opendir(my $subsys_dh, $base) or next;
+        while (defined(my $device = readdir($subsys_dh))) {
+            next if $device !~ /^nvme[0-9]+n[0-9]+$/;
+            $devices->{"/dev/$device"} = $device if -b "/dev/$device";
+        }
+        closedir($subsys_dh);
+    }
+    closedir($dh);
+    return $devices;
+}
+
+sub _namespace_openers {
+    my ($nqn) = @_;
+    my $devices = _namespace_devices($nqn);
+    return [] if !%$devices;
+
+    my %openers;
+    for my $fd (glob('/proc/[0-9]*/fd/[0-9]*')) {
+        my $target = readlink($fd);
+        next if !defined($target) || !exists($devices->{$target});
+        my ($pid) = $fd =~ m!^/proc/([0-9]+)/!;
+        next if !defined($pid);
+        my $comm = eval { file_read_firstline("/proc/$pid/comm") } // 'unknown';
+        $openers{"$pid:$target"} = "$comm (PID $pid, $target)";
+    }
+
+    # Kernel consumers such as device-mapper do not necessarily keep a userspace
+    # file descriptor open, but expose their dependency in the holders directory.
+    for my $path (keys %$devices) {
+        my $device = $devices->{$path};
+        my $holders = "/sys/class/block/$device/holders";
+        opendir(my $holders_dh, $holders) or next;
+        while (defined(my $holder = readdir($holders_dh))) {
+            next if $holder eq '.' || $holder eq '..';
+            $openers{"holder:$device:$holder"} = "$path held by $holder";
+        }
+        closedir($holders_dh);
+    }
+
+    return [sort values %openers];
 }
 
 sub _portal_reachable {
@@ -549,8 +628,9 @@ sub activate_storage {
     die "native NVMe multipath is disabled in the running kernel\n"
         if (file_read_firstline('/sys/module/nvme_core/parameters/multipath') // 'N') ne 'Y';
 
-    _assert_unique_target($storeid, $scfg);
     my $portals = _configured_portals($scfg);
+    _validate_local_ifaces($portals);
+    _assert_unique_target($storeid, $scfg);
     my $states = _controller_states($scfg->{subsysnqn});
     my $force_reconcile =
         delete($cache->{'zfsnvme-force-reconcile'}->{$storeid}) // 0;
@@ -649,6 +729,11 @@ sub activate_storage {
 
 sub deactivate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
+
+    my $openers = _namespace_openers($scfg->{subsysnqn});
+    die "refusing to disconnect NVMe storage '$storeid': namespace in use by "
+        . join(', ', @$openers) . "\n"
+        if @$openers;
 
     run_command(
         [$nvme, 'disconnect', '--nqn', $scfg->{subsysnqn}],
