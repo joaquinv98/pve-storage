@@ -35,21 +35,30 @@ my $zfs_unknown_scsi_provider = sub {
     die "$provider: unknown iscsi provider. Available [comstar, istgt, iet, LIO]";
 };
 
-my $zfs_get_base = sub {
-    my ($scfg) = @_;
+sub zfs_lun_provider {
+    my ($class, $scfg) = @_;
 
     if ($scfg->{iscsiprovider} eq 'comstar') {
-        return PVE::Storage::LunCmd::Comstar::get_base($scfg);
+        return 'PVE::Storage::LunCmd::Comstar';
     } elsif ($scfg->{iscsiprovider} eq 'istgt') {
-        return PVE::Storage::LunCmd::Istgt::get_base($scfg);
+        return 'PVE::Storage::LunCmd::Istgt';
     } elsif ($scfg->{iscsiprovider} eq 'iet') {
-        return PVE::Storage::LunCmd::Iet::get_base($scfg);
+        return 'PVE::Storage::LunCmd::Iet';
     } elsif ($scfg->{iscsiprovider} eq 'LIO') {
-        return PVE::Storage::LunCmd::LIO::get_base($scfg);
+        return 'PVE::Storage::LunCmd::LIO';
     } else {
         $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
     }
-};
+}
+
+sub zfs_get_base {
+    my ($class, $scfg) = @_;
+
+    my $provider = $class->zfs_lun_provider($scfg);
+    my $get_base = $provider->can('get_base')
+        or die "$provider does not implement get_base\n";
+    return $get_base->($scfg);
+}
 
 sub zfs_request {
     my ($class, $scfg, $timeout, $method, @params) = @_;
@@ -60,18 +69,10 @@ sub zfs_request {
     my $msg = '';
 
     if ($lun_cmds->{$method}) {
-        if ($scfg->{iscsiprovider} eq 'comstar') {
-            $msg =
-                PVE::Storage::LunCmd::Comstar::run_lun_command($scfg, $timeout, $method, @params);
-        } elsif ($scfg->{iscsiprovider} eq 'istgt') {
-            $msg = PVE::Storage::LunCmd::Istgt::run_lun_command($scfg, $timeout, $method, @params);
-        } elsif ($scfg->{iscsiprovider} eq 'iet') {
-            $msg = PVE::Storage::LunCmd::Iet::run_lun_command($scfg, $timeout, $method, @params);
-        } elsif ($scfg->{iscsiprovider} eq 'LIO') {
-            $msg = PVE::Storage::LunCmd::LIO::run_lun_command($scfg, $timeout, $method, @params);
-        } else {
-            $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
-        }
+        my $provider = $class->zfs_lun_provider($scfg);
+        my $run_lun_command = $provider->can('run_lun_command')
+            or die "$provider does not implement run_lun_command\n";
+        $msg = $run_lun_command->($scfg, $timeout, $method, @params);
     } else {
 
         my $target = 'root@' . $scfg->{portal};
@@ -100,7 +101,7 @@ sub zfs_request {
 sub zfs_get_lu_name {
     my ($class, $scfg, $zvol) = @_;
 
-    my $base = $zfs_get_base->($scfg);
+    my $base = $class->zfs_get_base($scfg);
 
     $zvol = ($class->parse_volname($zvol))[1];
 
@@ -134,7 +135,7 @@ sub zfs_delete_lu {
 sub zfs_create_lu {
     my ($class, $scfg, $zvol) = @_;
 
-    my $base = $zfs_get_base->($scfg);
+    my $base = $class->zfs_get_base($scfg);
     my $guid = $class->zfs_request($scfg, undef, 'create_lu', "$base/$scfg->{pool}/$zvol");
 
     return $guid;
@@ -143,7 +144,7 @@ sub zfs_create_lu {
 sub zfs_import_lu {
     my ($class, $scfg, $zvol) = @_;
 
-    my $base = $zfs_get_base->($scfg);
+    my $base = $class->zfs_get_base($scfg);
     $class->zfs_request($scfg, undef, 'import_lu', "$base/$scfg->{pool}/$zvol");
 }
 
