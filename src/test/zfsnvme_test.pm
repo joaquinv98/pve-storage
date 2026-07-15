@@ -11,6 +11,8 @@ use PVE::Storage::ZFSPlugin;
 use Test::MockModule;
 use Test::More;
 
+my $nvme_mock = Test::MockModule->new('PVE::Storage::ZFSNVMePlugin');
+
 is(
     PVE::Storage::ZFSNVMePlugin::verify_nvme_nqn(
         'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc',
@@ -85,6 +87,16 @@ eval {
     });
 };
 like($@, qr/one interface for each/, 'portal and host-interface counts must match');
+
+$nvme_mock->redefine(_local_iface_exists => sub { return $_[0] eq 'ens20' });
+eval {
+    PVE::Storage::ZFSNVMePlugin::_validate_local_ifaces([
+        { host_iface => 'ens20' },
+        { host_iface => 'ens21' },
+    ]);
+};
+like($@, qr/host interface 'ens21' does not exist/, 'missing local interface fails preflight');
+$nvme_mock->redefine(_local_iface_exists => sub { return 1 });
 
 eval {
     PVE::Storage::ZFSNVMePlugin::_assert_unique_target(
@@ -161,7 +173,6 @@ is(
 eval { PVE::Storage::ZFSNVMePlugin::_validate_secret('plaintext') };
 like($@, qr/invalid NVMe DH-HMAC-CHAP/, 'rejects a plaintext secret');
 
-my $nvme_mock = Test::MockModule->new('PVE::Storage::ZFSNVMePlugin');
 $nvme_mock->redefine(zfs_get_lu_name => sub { return '12345678-1234-1234-1234-123456789abc' });
 
 my $scfg = {};
@@ -262,6 +273,21 @@ is_deeply(
     'volume listing requires a local or received ownership property',
 );
 
+$nvme_mock->redefine(
+    zfs_list_zvol => sub { return { 'vm-100-disk-0' => 1, 'base-200-disk-0' => 1 } },
+);
+eval {
+    PVE::Storage::ZFSNVMePlugin->on_delete_hook(
+        'nvmetest',
+        { subsysnqn => 'nqn.2026-07.example:test' },
+    );
+};
+like(
+    $@,
+    qr/refusing to remove.*base-200-disk-0, vm-100-disk-0/s,
+    'storage removal requires an empty owned dataset on every cluster node',
+);
+
 eval {
     PVE::Storage::ZFSNVMePlugin->volume_resize(
         {}, 'nvmetest', 'vm-100-disk-0', 2 * 1024 * 1024 * 1024, 1, undef,
@@ -272,6 +298,22 @@ like(
     qr/online resize is not supported.*stop the VM first/,
     'online resize is rejected before mutating the backend',
 );
+
+$nvme_mock->redefine(
+    _namespace_openers => sub { return ['qemu-system-x86_64 (PID 123, /dev/nvme0n1)'] },
+);
+eval {
+    PVE::Storage::ZFSNVMePlugin->deactivate_storage(
+        'nvmetest',
+        { subsysnqn => 'nqn.2026-07.example:test' },
+    );
+};
+like(
+    $@,
+    qr/refusing to disconnect.*namespace in use by qemu-system-x86_64/s,
+    'storage deactivation refuses to remove a namespace opened by a VM',
+);
+$nvme_mock->redefine(_namespace_openers => sub { return [] });
 
 my $update_key = 'DHHC-1:01:dXBkYXRlLXRlc3Qta2V5:';
 $nvme_mock->redefine(file_read_firstline => sub { return $update_key });
