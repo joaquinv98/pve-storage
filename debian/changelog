@@ -1,3 +1,9 @@
+libpve-storage-perl (9.1.6+neatech1) trixie; urgency=medium
+
+  * add native ZFS over NVMe/TCP storage with multipath and DH-HMAC-CHAP
+
+ -- Joaquin Varela <joaquinv98@users.noreply.github.com>  Tue, 14 Jul 2026 23:52:38 -0300
+
 libpve-storage-perl (9.1.6) trixie; urgency=medium
 
   * fix #7094: lvm: snapshot delete: when using 'snapshot-as-volume-chain',

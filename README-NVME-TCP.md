@@ -1,0 +1,66 @@
+# Native ZFS over NVMe/TCP for Proxmox VE
+
+This branch adds a native `zfsnvme` storage type to `pve-storage`. It keeps the
+ZFS lifecycle used by the existing ZFS-over-iSCSI backend, but publishes each
+owned zvol as an NVMe namespace and maps it through Linux native NVMe
+multipath on every Proxmox node.
+
+Implemented lifecycle operations include thin zvol allocation, free,
+snapshots, rollback, templates, linked clones, offline resize, activation,
+deactivation, storage status, and shared-storage live migration. Namespace
+identity is persisted in ZFS user properties, and guests use the stable
+`/dev/disk/by-id/nvme-uuid.*` path rather than controller or namespace numbers.
+
+## Design
+
+- The Proxmox node remains the control-plane client. ZFS and NVMe target
+  changes execute on the storage server through the existing ZFS SSH channel.
+- The target implementation uses the Linux configfs `nvmet` API directly and
+  serializes mutations with `/run/lock/pve-nvmet.lock`.
+- Each Proxmox node uses its own Host NQN and target ACL. `allow_any_host` is
+  never enabled.
+- DH-HMAC-CHAP keys are stored in pmxcfs with mode `0600`, sent to `nvme-cli`
+  through a protected libnvme JSON file, and never placed on a process command
+  line.
+- Portals are paired positionally with explicit local interfaces. A controller
+  connected through the wrong interface is replaced one path at a time.
+- Existing zvols are not adopted implicitly. The provider checks ownership,
+  subsystem NQN, namespace ID, UUID, model, and deterministic serial before it
+  mutates target state.
+
+## Required production baseline
+
+The storage server needs OpenZFS, `nvmet`, `nvmet-tcp`, configfs, one isolated
+TCP portal per failure domain, and the SSH privileges already required by the
+Proxmox ZFS-over-iSCSI backend. Every Proxmox node needs `nvme-cli`,
+`nvme-tcp`, native NVMe multipath enabled, a unique `/etc/nvme/hostnqn`, and
+identically named data interfaces.
+
+Use redundant switches and subnets. DH-HMAC-CHAP authenticates hosts but does
+not encrypt payloads; this implementation does not configure NVMe/TCP TLS.
+Storage networks therefore need physical or cryptographic isolation appropriate
+for the threat model.
+
+`shared 1` relies on Proxmox cluster locking and fencing to prevent unrelated
+hosts from writing the same guest disk. Enterprise deployment requires tested
+fencing, quorum, time synchronization, backups, and recovery procedures.
+
+## Current limitation
+
+Online block-device resize is rejected before the zvol is changed. The Proxmox
+QEMU path currently issues `block_resize`, which cannot resize a host block
+device opened through `host_device`. Stop the VM, resize it, and start it again.
+All other lifecycle operations listed above have been exercised in the lab.
+
+See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence collected and
+[docs/UPGRADES.md](docs/UPGRADES.md) for the supported upgrade process.
+
+## Companion upstream branches
+
+- Backend and validation: https://github.com/joaquinv98/pve-storage/tree/feature/zfs-nvme-tcp
+- Proxmox VE web UI: https://github.com/joaquinv98/pve-manager/tree/feature/zfs-nvme-tcp
+- Administrator documentation: https://github.com/joaquinv98/pve-docs/tree/feature/zfs-nvme-tcp
+
+Proxmox accepts code contributions as patch series on `pve-devel`; the GitHub
+forks are public review and reproducibility mirrors, not the canonical merge
+queue.

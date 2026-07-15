@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+printf '%s\n' 'DATASOURCE_LIST="nocloud"' >/etc/cirros-init/config
+mkdir -p /home/cirros/.ssh
+cat >/home/cirros/.ssh/authorized_keys <<'EOF'
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL9mgQkFZNrBhm1m97GuDRVLHhmYCXFS4RFut8m8qw1H root@pvenest01
+EOF
+chown -R cirros:cirros /home/cirros/.ssh
+chmod 0700 /home/cirros/.ssh
+chmod 0600 /home/cirros/.ssh/authorized_keys

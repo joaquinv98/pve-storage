@@ -1,0 +1,102 @@
+#!/bin/sh
+
+set -eu
+
+storage_cfg=${PVE_ZFSNVME_STORAGE_CFG:-/etc/pve/storage.cfg}
+force=${PVE_ZFSNVME_GUARD_FORCE:-0}
+
+if [ "$force" != 1 ]; then
+    if [ ! -r "$storage_cfg" ] || ! grep -Eq '^[[:space:]]*zfsnvme:' "$storage_cfg"; then
+        exit 0
+    fi
+fi
+
+if [ "${PVE_ZFSNVME_ALLOW_UNSAFE_UPGRADE:-0}" = 1 ]; then
+    echo "WARNING: bypassing the ZFS/NVMe upgrade guard by explicit request" >&2
+    exit 0
+fi
+
+workdir=$(mktemp -d /tmp/pve-zfsnvme-upgrade-guard.XXXXXX)
+trap 'rm -rf -- "$workdir"' EXIT HUP INT TERM
+
+failed=0
+
+check_backend() {
+    package=$1
+    root=$(mktemp -d "$workdir/backend.XXXXXX")
+
+    if ! dpkg-deb -x "$package" "$root"; then
+        echo "ERROR: cannot inspect candidate package $package" >&2
+        failed=1
+        return
+    fi
+
+    plugin="$root/usr/share/perl5/PVE/Storage/ZFSNVMePlugin.pm"
+    registry="$root/usr/share/perl5/PVE/Storage.pm"
+    if [ ! -r "$plugin" ] || [ ! -r "$registry" ] \
+        || ! grep -Fq "return 'zfsnvme'" "$plugin" \
+        || ! grep -Fq 'PVE::Storage::ZFSNVMePlugin' "$registry"
+    then
+        echo "ERROR: $package would remove native zfsnvme backend support" >&2
+        failed=1
+    fi
+}
+
+check_manager() {
+    package=$1
+    root=$(mktemp -d "$workdir/manager.XXXXXX")
+
+    if ! dpkg-deb -x "$package" "$root"; then
+        echo "ERROR: cannot inspect candidate package $package" >&2
+        failed=1
+        return
+    fi
+
+    js="$root/usr/share/pve-manager/js/pvemanagerlib.js"
+    if [ ! -r "$js" ] || ! grep -Fq 'ZFSNVMeInputPanel' "$js" \
+        || ! grep -Fq 'zfsnvme' "$js"
+    then
+        echo "ERROR: $package would remove the zfsnvme web interface" >&2
+        failed=1
+    fi
+}
+
+inspect() {
+    package=$1
+
+    [ -f "$package" ] || return
+    case "$(basename "$package")" in
+        libpve-storage-perl_*.deb)
+            check_backend "$package"
+            ;;
+        pve-manager_*.deb)
+            check_manager "$package"
+            ;;
+    esac
+}
+
+if [ "$#" -gt 0 ]; then
+    for package in "$@"; do
+        inspect "$package"
+    done
+else
+    while IFS= read -r package; do
+        inspect "$package"
+    done
+fi
+
+if [ "$failed" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+The transaction was stopped before dpkg changed the node. Rebase the zfsnvme
+patches onto the candidate Proxmox versions, build replacement packages, run
+their full test suites, and retry the upgrade with those packages in the same
+APT transaction.
+
+For a one-time emergency bypass only:
+  PVE_ZFSNVME_ALLOW_UNSAFE_UPGRADE=1 apt ...
+EOF
+    exit 1
+fi
+
+exit 0

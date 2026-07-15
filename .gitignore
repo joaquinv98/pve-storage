@@ -4,3 +4,4 @@
 /*.buildinfo
 /*.changes
 /libpve-storage-perl-[0-9]*/
+/dist/

@@ -1,0 +1,2 @@
+// Keep a Proxmox upgrade from silently replacing the native zfsnvme patches.
+DPkg::Pre-Install-Pkgs { "/usr/local/sbin/pve-zfsnvme-upgrade-guard"; };
