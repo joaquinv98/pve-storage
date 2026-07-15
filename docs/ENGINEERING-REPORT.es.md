@@ -509,8 +509,9 @@ con `git am` sobre worktrees nuevos produjo exactamente los mismos tree hashes
 que los branches de submission. También se verificaron los 12 mensajes de las
 tres series con un dry-run real de `git send-email`.
 
-Antes del envío público queda completar y remitir el Harmony CLA individual a
-`office@proxmox.com`, suscribir la identidad de contribución a `pve-devel` y
-configurar el SMTP autenticado. El workspace incluye el formulario oficial,
-dos emails listos para CLA y RFC, y un helper que envía las series firmadas sin
-guardar credenciales.
+Antes del envío público queda determinar si el copyright pertenece a Joaquin
+Varela o a una entidad, completar y remitir a `office@proxmox.com` el acuerdo
+aplicable, suscribir la identidad de contribución a `pve-devel` y configurar el
+SMTP autenticado. El workspace incluye ambos formularios oficiales, emails
+listos para CLA y RFC, y un helper que envía las series firmadas sin guardar
+credenciales.

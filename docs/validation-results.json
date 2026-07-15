@@ -429,7 +429,7 @@
     "canonical_channel": "pve-devel@lists.proxmox.com",
     "format": "git send-email patch series",
     "harmony_cla_required": true,
-    "cla_status": "official form downloaded; not yet signed or submitted",
+    "cla_status": "official individual and entity forms downloaded; applicable agreement not yet selected or submitted",
     "submission_identity": "Joaquin Varela <joaquinvarela@neatech.ar>",
     "patch_series_prepared": true,
     "patch_series_signed": true,
@@ -442,7 +442,7 @@
     },
     "ready_to_send": false,
     "send_blockers": [
-      "firmar y enviar el Harmony CLA",
+      "seleccionar y enviar el acuerdo individual o de entidad aplicable",
       "configurar SMTP/git send-email"
     ]
   },
