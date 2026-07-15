@@ -11,6 +11,7 @@ SOURCES= \
 	ISCSIDirectPlugin.pm \
 	ZFSPoolPlugin.pm \
 	ZFSPlugin.pm \
+	ZFSNVMePlugin.pm \
 	PBSPlugin.pm \
 	BTRFSPlugin.pm \
 	LvmThinPlugin.pm \

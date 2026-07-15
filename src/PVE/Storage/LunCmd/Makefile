@@ -1,4 +1,4 @@
-SOURCES=Comstar.pm Istgt.pm Iet.pm LIO.pm
+SOURCES=Comstar.pm Istgt.pm Iet.pm LIO.pm NVMET.pm
 
 .PHONY: install
 install:
