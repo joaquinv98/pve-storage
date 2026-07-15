@@ -62,6 +62,10 @@ All other lifecycle operations listed above have been exercised in the lab.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence collected and
 [docs/UPGRADES.md](docs/UPGRADES.md) for the supported upgrade process.
+The complete engineering narrative is in
+[docs/ENGINEERING-REPORT.es.md](docs/ENGINEERING-REPORT.es.md), with the same
+results available as machine-readable
+[JSON](docs/validation-results.json).
 
 ## Companion upstream branches
 
