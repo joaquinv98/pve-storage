@@ -430,7 +430,15 @@
     "format": "git send-email patch series",
     "harmony_cla_required": true,
     "cla_status": "not confirmed by author",
-    "ready_to_prepare_patch_series": true,
+    "draft_patch_series_prepared": true,
+    "draft_patch_series_signed": false,
+    "draft_patch_series_apply_check": "PASS",
+    "draft_series": {
+      "pve-storage_commits": 4,
+      "pve-manager_commits": 2,
+      "pve-docs_commits": 3,
+      "applied_trees_match_submission_branches": true
+    },
     "ready_to_send": false,
     "send_blockers": [
       "confirmar identidad exacta para Signed-off-by",

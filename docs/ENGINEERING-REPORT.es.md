@@ -482,3 +482,28 @@ para cualquier plataforma.
 
 La versión machine-readable de este informe está en
 `docs/validation-results.json`.
+
+## 14. Preparación para upstream
+
+No se abrió un pull request contra GitHub porque los repositorios oficiales de
+Proxmox son mirrors read-only. El canal canónico es una serie de patches por
+`git send-email` a `pve-devel@lists.proxmox.com`.
+
+Se prepararon tres branches limpios desde los `master` oficiales vigentes:
+
+- `pve-storage`: cuatro commits de backend, hardening y política all-path;
+- `pve-manager`: dos commits de UI;
+- `pve-docs`: tres commits de manual.
+
+La vista upstream excluye changelogs `+neatech`, packages, reports, JSON,
+upgrade tooling y harnesses destructivos del lab. Los nueve patches fueron
+aplicados con `git am` sobre worktrees nuevos; los tree hashes resultantes son
+idénticos a los branches de submission y no hay errores de whitespace. Los
+mensajes respetan el límite de 70 columnas y las cover letters documentan
+arquitectura, límites y matriz de validación.
+
+El draft permanece deliberadamente sin `Signed-off-by`. Ese trailer certifica
+autoría y no debe agregarse automáticamente. Antes del envío, Joaquin Varela
+debe confirmar la identidad exacta, el Harmony CLA individual o de entidad y
+el SMTP de `git send-email`. Recién entonces corresponde regenerar con
+`--signoff`, hacer un dry-run al correo propio y enviar la serie pública.
