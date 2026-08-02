@@ -19,6 +19,7 @@ my $nvme = '/usr/sbin/nvme';
 my $secret_dir = '/etc/pve/priv/storage';
 my $runtime_dir = '/run/pve-storage';
 my $max_paths = 16;
+my $max_hosts = 64;
 
 my $RE_NQN = qr{
     \A
@@ -140,8 +141,38 @@ sub parse_nvme_host_ifaces($value, $noerr = undef) {
     return $result;
 }
 
+sub parse_nvme_host_nqns($value, $noerr = undef) {
+    my $result = [];
+    my $seen = {};
+
+    for my $hostnqn (split(/,/, $value // '')) {
+        $hostnqn = trim($hostnqn);
+        if (!verify_nvme_nqn($hostnqn, 1) || $seen->{$hostnqn}++) {
+            return undef if $noerr;
+            die "invalid or duplicate NVMe host NQN '$hostnqn'\n";
+        }
+        push $result->@*, $hostnqn;
+        if (scalar($result->@*) > $max_hosts) {
+            return undef if $noerr;
+            die "at most $max_hosts NVMe host NQNs are supported\n";
+        }
+    }
+
+    if (!$result->@*) {
+        return undef if $noerr;
+        die "at least one NVMe host NQN is required\n";
+    }
+
+    return $result;
+}
+
 my sub verify_nvme_host_ifaces($value, $noerr = undef) {
     return undef if !parse_nvme_host_ifaces($value, $noerr);
+    return $value;
+}
+
+my sub verify_nvme_host_nqns($value, $noerr = undef) {
+    return undef if !parse_nvme_host_nqns($value, $noerr);
     return $value;
 }
 
@@ -172,6 +203,7 @@ sub _validate_local_ifaces($portals) {
 PVE::JSONSchema::register_format('pve-storage-nvme-nqn', \&verify_nvme_nqn);
 PVE::JSONSchema::register_format('pve-storage-nvme-portals', \&verify_nvme_portals);
 PVE::JSONSchema::register_format('pve-storage-nvme-host-ifaces', \&verify_nvme_host_ifaces);
+PVE::JSONSchema::register_format('pve-storage-nvme-host-nqns', \&verify_nvme_host_nqns);
 
 sub type($class) {
     return 'zfsnvme';
@@ -204,6 +236,13 @@ sub properties($class) {
             type => 'string',
             format => 'pve-storage-nvme-host-ifaces',
             maxLength => 512,
+        },
+        'nvme-host-nqns' => {
+            description =>
+                "Comma-separated /etc/nvme/hostnqn values for every cluster node allowed to use this storage.",
+            type => 'string',
+            format => 'pve-storage-nvme-host-nqns',
+            maxLength => 8192,
         },
         'dhchap-key' => {
             description => "NVMe DH-HMAC-CHAP key in secret representation format.",
@@ -261,6 +300,7 @@ sub options($class) {
         subsysnqn => { fixed => 1 },
         'nvme-portals' => { fixed => 1 },
         'nvme-host-ifaces' => { optional => 1 },
+        'nvme-host-nqns' => { optional => 1 },
         pool => { fixed => 1 },
         blocksize => { fixed => 1 },
         sparse => { optional => 1 },
@@ -306,6 +346,8 @@ sub check_config($class, $section_id, $config, $create, $skip_schema_check) {
     } elsif (defined($config->{'nvme-host-ifaces'})) {
         parse_nvme_host_ifaces($config->{'nvme-host-ifaces'});
     }
+    parse_nvme_host_nqns($config->{'nvme-host-nqns'})
+        if defined($config->{'nvme-host-nqns'});
     _validate_fail_fast_timeout($config, $create ? 600 : undef);
     return $class->SUPER::check_config($section_id, $config, $create, $skip_schema_check);
 }
@@ -392,6 +434,7 @@ my sub delete_secret($storeid) {
 
 sub on_add_hook($class, $storeid, $scfg, %sensitive) {
     _configured_portals($scfg);
+    parse_nvme_host_nqns($scfg->{'nvme-host-nqns'});
     _assert_unique_target($storeid, $scfg);
     set_secret($storeid, $sensitive{'dhchap-key'});
     return;
@@ -402,6 +445,7 @@ sub on_update_hook_full($class, $storeid, $scfg, $update, $delete, $sensitive) {
     delete @prospective{$delete->@*} if $delete;
     verify_nvme_nqn($prospective{subsysnqn});
     _configured_portals(\%prospective);
+    parse_nvme_host_nqns($prospective{'nvme-host-nqns'});
     _validate_fail_fast_timeout(\%prospective, 600);
     _assert_unique_target($storeid, \%prospective);
 
@@ -667,15 +711,23 @@ sub activate_storage($class, $storeid, $scfg, $cache = undef) {
     my $hostid = file_read_firstline('/etc/nvme/hostid')
         // die "missing /etc/nvme/hostid\n";
     verify_nvme_nqn($hostnqn);
+    my $hostnqns = parse_nvme_host_nqns($scfg->{'nvme-host-nqns'});
+    my $local_host_is_allowed = grep { $_ eq $hostnqn } $hostnqns->@*;
+    die "local NVMe host NQN '$hostnqn' is missing from nvme-host-nqns\n"
+        if !$local_host_is_allowed;
     my $key = get_secret($storeid);
     my $target_portals = [
         map { "$_->{family},$_->{address},$_->{port}" } $portals->@*
     ];
 
-    PVE::Storage::LunCmd::NVMET::ensure_target($scfg, $hostnqn, $target_portals);
-    PVE::Storage::LunCmd::NVMET::set_host_key($scfg, $hostnqn, $key);
-    PVE::Storage::LunCmd::NVMET::allow_host($scfg, $hostnqn);
+    PVE::Storage::LunCmd::NVMET::ensure_target($scfg, $target_portals);
+    for my $allowed_hostnqn ($hostnqns->@*) {
+        PVE::Storage::LunCmd::NVMET::ensure_host($scfg, $allowed_hostnqn);
+        PVE::Storage::LunCmd::NVMET::set_host_key($scfg, $allowed_hostnqn, $key);
+        PVE::Storage::LunCmd::NVMET::allow_host($scfg, $allowed_hostnqn);
+    }
     PVE::Storage::LunCmd::NVMET::reconcile($scfg);
+    PVE::Storage::LunCmd::NVMET::publish_target($scfg, $target_portals);
 
     my $config_path =
         write_runtime_config($storeid, $scfg, $hostnqn, $hostid, $key, $portals);

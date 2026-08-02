@@ -112,8 +112,7 @@ allocate_port_id() {
 }
 
 ensure_port() {
-    local nqn="$1"
-    local spec="$2"
+    local spec="$1"
     local family address service id port
 
     IFS=, read -r family address service <<<"$spec"
@@ -137,10 +136,6 @@ ensure_port() {
         printf '%s\n' "$service" >"$port/addr_trsvcid"
     fi
 
-    port="$ROOT/ports/$id"
-    if [[ ! -e "$port/subsystems/$nqn" ]]; then
-        ln -s "$ROOT/subsystems/$nqn" "$port/subsystems/$nqn"
-    fi
     printf '%s\n' "$id"
 }
 
@@ -148,7 +143,7 @@ ensure_target() {
     local nqn="$1"
     local pool="$2"
     shift 2
-    local spec id port desired_ports=''
+    local spec
 
     validate_nqn "$nqn"
     validate_pool "$pool"
@@ -156,7 +151,31 @@ ensure_target() {
     ensure_subsystem "$nqn"
 
     for spec in "$@"; do
-        id="$(ensure_port "$nqn" "$spec")"
+        ensure_port "$spec" >/dev/null
+    done
+}
+
+publish_target() {
+    local nqn="$1"
+    shift
+    local spec id port desired_ports=''
+
+    validate_nqn "$nqn"
+    (($# >= 1)) || die "at least one NVMe/TCP portal is required"
+    [[ -d "$ROOT/subsystems/$nqn" ]] || die "NVMe subsystem does not exist"
+
+    # The subsystem only becomes reachable after every namespace, host ACL and
+    # authentication key has been restored. Publishing it earlier makes an
+    # initiator treat a transient "host not allowed" response as permanent and
+    # remove the controller, failing queued I/O despite ctrl_loss_tmo.
+    for spec in "$@"; do
+        IFS=, read -r family address service <<<"$spec"
+        id="$(find_port "$family" "$address" "$service" || true)"
+        [[ -n "$id" ]] || die "NVMe/TCP portal '$spec' is not configured"
+        port="$ROOT/ports/$id"
+        if [[ ! -e "$port/subsystems/$nqn" ]]; then
+            ln -s "$ROOT/subsystems/$nqn" "$port/subsystems/$nqn"
+        fi
         desired_ports="$desired_ports $id"
     done
 
@@ -523,6 +542,7 @@ shift || true
 
 case "$mode" in
     ensure-target) ensure_target "$@" ;;
+    publish-target) publish_target "$@" ;;
     ensure-host) ensure_host "$@" ;;
     allow-host) allow_host "$@" ;;
     create) create_volume "$@" ;;
@@ -616,10 +636,15 @@ sub get_base($scfg) {
     return '/dev/zvol';
 }
 
-sub ensure_target($scfg, $hostnqn, $portals) {
+sub ensure_target($scfg, $portals) {
     my $nqn = $scfg->{subsysnqn};
 
     remote_call($scfg, 15, 'ensure-target', $nqn, $scfg->{pool}, $portals->@*);
+}
+
+sub ensure_host($scfg, $hostnqn) {
+    my $nqn = $scfg->{subsysnqn};
+
     remote_call($scfg, 10, 'ensure-host', $nqn, $hostnqn);
 }
 
@@ -655,6 +680,10 @@ sub allow_host($scfg, $hostnqn) {
 
 sub reconcile($scfg) {
     remote_call($scfg, 30, 'reconcile', $scfg->{subsysnqn}, $scfg->{pool});
+}
+
+sub publish_target($scfg, $portals) {
+    remote_call($scfg, 15, 'publish-target', $scfg->{subsysnqn}, $portals->@*);
 }
 
 sub delete_target($scfg) {

@@ -26,6 +26,18 @@ ok(
     'rejects an invalid NQN',
 );
 
+my $hostnqn_a = 'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc';
+my $hostnqn_b = 'nqn.2014-08.org.nvmexpress:uuid:abcdefab-abcd-abcd-abcd-abcdefabcdef';
+is_deeply(
+    PVE::Storage::ZFSNVMePlugin::parse_nvme_host_nqns("$hostnqn_a,$hostnqn_b"),
+    [$hostnqn_a, $hostnqn_b],
+    'parses the complete cluster NVMe host allow-list',
+);
+ok(
+    !PVE::Storage::ZFSNVMePlugin::parse_nvme_host_nqns("$hostnqn_a,$hostnqn_a", 1),
+    'rejects duplicate NVMe host NQNs',
+);
+
 is_deeply(
     PVE::Storage::ZFSNVMePlugin::parse_nvme_portals(
         '10.90.1.11:4420,[fd00::11]:4421,10.90.2.11',
@@ -421,6 +433,7 @@ is($@, '', 'fast I/O fail remains valid with infinite controller reconnect');
             {
                 subsysnqn => 'nqn.2026-07.example:test',
                 'nvme-portals' => '10.90.1.11,10.90.2.11',
+                'nvme-host-nqns' => $hostnqn_a,
             },
             { 'nvme-host-ifaces' => 'ens20,ens21' },
             undef,
@@ -445,13 +458,38 @@ PVE::Storage::LunCmd::NVMET::ensure_target(
         subsysnqn => 'nqn.2026-07.example:test',
         pool => 'tank/pve-nvme',
     },
-    'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc',
     ['ipv4,10.90.1.11,4420'],
 );
 like(
     $helper_calls[0]->{input},
     qr/current_model.*current_serial.*refusing to take over existing NVMe subsystem/s,
     'target reconcile verifies model and deterministic serial before taking over a subsystem',
+);
+my ($ensure_port_body) = $helper_calls[0]->{input} =~ /^ensure_port\(\) \{\n(?<body>.*?)^\}/ms;
+ok(defined($ensure_port_body), 'remote helper contains the port preparation function');
+unlike(
+    $ensure_port_body,
+    qr{ln[ ]-s},
+    'target setup does not publish a subsystem before ACL and namespace reconciliation',
+);
+like(
+    $helper_calls[0]->{input},
+    qr{^publish_target\(\).*?ln[ ]-s}ms,
+    'the remote helper exposes the subsystem only in its publish operation',
+);
+
+@helper_calls = ();
+PVE::Storage::LunCmd::NVMET::publish_target(
+    {
+        server => '192.0.2.10',
+        subsysnqn => 'nqn.2026-07.example:test',
+    },
+    ['ipv4,10.90.1.11,4420'],
+);
+like(
+    join(' ', $helper_calls[0]->{cmd}->@*),
+    qr/publish-target/,
+    'publishing the fully reconciled target is an explicit final operation',
 );
 
 my ($key_cmd, %key_opts);
