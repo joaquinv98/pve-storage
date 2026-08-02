@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "generated_at": "2026-08-02T02:01:00Z",
+  "generated_at": "2026-08-02T02:20:00Z",
   "language": "es-AR",
   "project": {
     "name": "Native ZFS over NVMe/TCP for Proxmox VE",
@@ -15,19 +15,25 @@
     "repositories": {
       "pve-storage": {
         "upstream_head": "0c56bad",
-        "feature_head": "b693d9d",
+        "submission_branch": "submission/zfs-nvme-tcp-rfc-v2",
+        "feature_head": "c497478",
+        "tree": "d8ba71f336483d22dba387fd9e07029e55a74a8d",
         "behind_upstream": 0,
         "commits_ahead": 7
       },
       "pve-manager": {
         "upstream_head": "3e77299a",
-        "feature_head": "9a9cea44",
+        "submission_branch": "submission/zfs-nvme-tcp-rfc-v2",
+        "feature_head": "baa72028",
+        "tree": "a181edfb0b49065eda7c677a9383290acfbe58ec",
         "behind_upstream": 0,
         "commits_ahead": 3
       },
       "pve-docs": {
         "upstream_head": "100c85f",
-        "feature_head": "6cbb96d",
+        "submission_branch": "submission/zfs-nvme-tcp-rfc-v2",
+        "feature_head": "66df01f",
+        "tree": "047f658228ef05c35f2f719e67c623b309e92581",
         "behind_upstream": 0,
         "commits_ahead": 5
       }
@@ -154,7 +160,7 @@
     "code_fix": {
       "feature": "nvme-host-nqns cluster allow-list",
       "publication_order": ["prepare subsystem and ports", "restore all Host NQNs and DHCHAP keys", "reconcile namespaces", "publish port links"],
-      "commit": "b693d9d"
+      "commit": "c497478"
     }
   },
   "fault_injection": [

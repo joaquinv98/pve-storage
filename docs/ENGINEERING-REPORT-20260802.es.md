@@ -98,11 +98,15 @@ de Max R. Carrara:
 
 Los tres repositorios están a cero commits detrás del upstream oficial:
 
-| Repositorio | Upstream | Feature | Ahead | Behind |
+| Repositorio | Upstream | Submission v2 | Ahead | Behind |
 |---|---:|---:|---:|---:|
-| pve-storage | `0c56bad` | `b693d9d` | 7 | 0 |
-| pve-manager | `3e77299a` | `9a9cea44` | 3 | 0 |
-| pve-docs | `100c85f` | `6cbb96d` | 5 | 0 |
+| pve-storage | `0c56bad` | `c497478` | 7 | 0 |
+| pve-manager | `3e77299a` | `baa72028` | 3 | 0 |
+| pve-docs | `100c85f` | `66df01f` | 5 | 0 |
+
+Las ramas publicadas se llaman `submission/zfs-nvme-tcp-rfc-v2`. Los árboles
+son idénticos a los binarios validados; la preparación final sólo completó los
+mensajes y trailers `Signed-off-by` de los commits nuevos.
 
 ## 4. Hallazgos de reinicio y correcciones
 
