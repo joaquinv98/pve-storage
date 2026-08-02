@@ -1,7 +1,6 @@
 package PVE::Storage::LunCmd::NVMET;
 
-use strict;
-use warnings;
+use v5.36;
 
 use PVE::Tools qw(run_command trim);
 
@@ -113,8 +112,7 @@ allocate_port_id() {
 }
 
 ensure_port() {
-    local nqn="$1"
-    local spec="$2"
+    local spec="$1"
     local family address service id port
 
     IFS=, read -r family address service <<<"$spec"
@@ -138,10 +136,6 @@ ensure_port() {
         printf '%s\n' "$service" >"$port/addr_trsvcid"
     fi
 
-    port="$ROOT/ports/$id"
-    if [[ ! -e "$port/subsystems/$nqn" ]]; then
-        ln -s "$ROOT/subsystems/$nqn" "$port/subsystems/$nqn"
-    fi
     printf '%s\n' "$id"
 }
 
@@ -149,7 +143,7 @@ ensure_target() {
     local nqn="$1"
     local pool="$2"
     shift 2
-    local spec id port desired_ports=''
+    local spec
 
     validate_nqn "$nqn"
     validate_pool "$pool"
@@ -157,7 +151,31 @@ ensure_target() {
     ensure_subsystem "$nqn"
 
     for spec in "$@"; do
-        id="$(ensure_port "$nqn" "$spec")"
+        ensure_port "$spec" >/dev/null
+    done
+}
+
+publish_target() {
+    local nqn="$1"
+    shift
+    local spec id port desired_ports=''
+
+    validate_nqn "$nqn"
+    (($# >= 1)) || die "at least one NVMe/TCP portal is required"
+    [[ -d "$ROOT/subsystems/$nqn" ]] || die "NVMe subsystem does not exist"
+
+    # The subsystem only becomes reachable after every namespace, host ACL and
+    # authentication key has been restored. Publishing it earlier makes an
+    # initiator treat a transient "host not allowed" response as permanent and
+    # remove the controller, failing queued I/O despite ctrl_loss_tmo.
+    for spec in "$@"; do
+        IFS=, read -r family address service <<<"$spec"
+        id="$(find_port "$family" "$address" "$service" || true)"
+        [[ -n "$id" ]] || die "NVMe/TCP portal '$spec' is not configured"
+        port="$ROOT/ports/$id"
+        if [[ ! -e "$port/subsystems/$nqn" ]]; then
+            ln -s "$ROOT/subsystems/$nqn" "$port/subsystems/$nqn"
+        fi
         desired_ports="$desired_ports $id"
     done
 
@@ -524,6 +542,7 @@ shift || true
 
 case "$mode" in
     ensure-target) ensure_target "$@" ;;
+    publish-target) publish_target "$@" ;;
     ensure-host) ensure_host "$@" ;;
     allow-host) allow_host "$@" ;;
     create) create_volume "$@" ;;
@@ -574,28 +593,24 @@ fi
 printf '%s\n' "$key" >"$host/dhchap_key"
 REMOTE_SET_HOST_KEY
 
-sub _server {
-    my ($scfg) = @_;
+my sub server($scfg) {
     return $scfg->{server} // $scfg->{portal};
 }
 
-sub _ssh_key {
-    my ($scfg) = @_;
-    my $server = _server($scfg);
+my sub ssh_key($scfg) {
+    my $server = server($scfg);
     return "$id_rsa_path/${server}_id_rsa";
 }
 
-sub _remote_call {
-    my ($scfg, $timeout, $operation, @params) = @_;
-
-    my $server = _server($scfg);
+my sub remote_call($scfg, $timeout, $operation, @params) {
+    my $server = server($scfg);
     my $target = 'root@' . $server;
     my $msg = '';
     my $err = '';
     my $cmd = [
         @ssh_cmd,
         '-i',
-        _ssh_key($scfg),
+        ssh_key($scfg),
         $target,
         '--',
         '/bin/bash',
@@ -609,30 +624,32 @@ sub _remote_call {
         $cmd,
         input => $REMOTE_HELPER,
         timeout => $timeout // 10,
-        outfunc => sub { $msg .= "$_[0]\n" },
-        errfunc => sub { $err .= "$_[0]\n" },
+        outfunc => sub($line) { $msg .= "$line\n" },
+        errfunc => sub($line) { $err .= "$line\n" },
         errmsg => "NVMe target operation '$operation' failed",
     );
 
     return trim($msg);
 }
 
-sub get_base {
+sub get_base($scfg) {
     return '/dev/zvol';
 }
 
-sub ensure_target {
-    my ($scfg, $hostnqn, $portals) = @_;
+sub ensure_target($scfg, $portals) {
     my $nqn = $scfg->{subsysnqn};
 
-    _remote_call($scfg, 15, 'ensure-target', $nqn, $scfg->{pool}, @$portals);
-    _remote_call($scfg, 10, 'ensure-host', $nqn, $hostnqn);
+    remote_call($scfg, 15, 'ensure-target', $nqn, $scfg->{pool}, $portals->@*);
 }
 
-sub set_host_key {
-    my ($scfg, $hostnqn, $key) = @_;
+sub ensure_host($scfg, $hostnqn) {
+    my $nqn = $scfg->{subsysnqn};
 
-    my $server = _server($scfg);
+    remote_call($scfg, 10, 'ensure-host', $nqn, $hostnqn);
+}
+
+sub set_host_key($scfg, $hostnqn, $key) {
+    my $server = server($scfg);
     my $target = 'root@' . $server;
     my $remote_cmd = join(
         ' ',
@@ -642,7 +659,7 @@ sub set_host_key {
     my $cmd = [
         @ssh_cmd,
         '-i',
-        _ssh_key($scfg),
+        ssh_key($scfg),
         $target,
         '--',
         $remote_cmd,
@@ -657,54 +674,47 @@ sub set_host_key {
     );
 }
 
-sub allow_host {
-    my ($scfg, $hostnqn) = @_;
-    _remote_call($scfg, 10, 'allow-host', $scfg->{subsysnqn}, $hostnqn);
+sub allow_host($scfg, $hostnqn) {
+    remote_call($scfg, 10, 'allow-host', $scfg->{subsysnqn}, $hostnqn);
 }
 
-sub reconcile {
-    my ($scfg) = @_;
-    _remote_call($scfg, 30, 'reconcile', $scfg->{subsysnqn}, $scfg->{pool});
+sub reconcile($scfg) {
+    remote_call($scfg, 30, 'reconcile', $scfg->{subsysnqn}, $scfg->{pool});
 }
 
-sub delete_target {
-    my ($scfg) = @_;
-    _remote_call($scfg, 15, 'delete-target', $scfg->{subsysnqn});
+sub publish_target($scfg, $portals) {
+    remote_call($scfg, 15, 'publish-target', $scfg->{subsysnqn}, $portals->@*);
+}
+
+sub delete_target($scfg) {
+    remote_call($scfg, 15, 'delete-target', $scfg->{subsysnqn});
 }
 
 my %lun_cmd_map = (
-    create_lu => sub {
-        my ($scfg, $timeout, $method, $device) = @_;
-        return _remote_call($scfg, $timeout, 'create', $scfg->{subsysnqn}, $scfg->{pool}, $device);
+    create_lu => sub($scfg, $timeout, $method, $device) {
+        return remote_call($scfg, $timeout, 'create', $scfg->{subsysnqn}, $scfg->{pool}, $device);
     },
-    delete_lu => sub {
-        my ($scfg, $timeout, $method, $uuid) = @_;
-        return _remote_call($scfg, $timeout, 'delete', $scfg->{subsysnqn}, $uuid);
+    delete_lu => sub($scfg, $timeout, $method, $uuid) {
+        return remote_call($scfg, $timeout, 'delete', $scfg->{subsysnqn}, $uuid);
     },
-    import_lu => sub {
-        my ($scfg, $timeout, $method, $device) = @_;
-        return _remote_call($scfg, $timeout, 'create', $scfg->{subsysnqn}, $scfg->{pool}, $device);
+    import_lu => sub($scfg, $timeout, $method, $device) {
+        return remote_call($scfg, $timeout, 'create', $scfg->{subsysnqn}, $scfg->{pool}, $device);
     },
-    modify_lu => sub {
-        my ($scfg, $timeout, $method, $size, $uuid) = @_;
-        return _remote_call($scfg, $timeout, 'resize', $scfg->{subsysnqn}, $uuid);
+    modify_lu => sub($scfg, $timeout, $method, $size, $uuid) {
+        return remote_call($scfg, $timeout, 'resize', $scfg->{subsysnqn}, $uuid);
     },
-    add_view => sub {
+    add_view => sub($scfg, $timeout, $method, @params) {
         return '';
     },
-    list_view => sub {
-        my ($scfg, $timeout, $method, $uuid) = @_;
-        return _remote_call($scfg, $timeout, 'view', $scfg->{subsysnqn}, $scfg->{pool}, $uuid);
+    list_view => sub($scfg, $timeout, $method, $uuid) {
+        return remote_call($scfg, $timeout, 'view', $scfg->{subsysnqn}, $scfg->{pool}, $uuid);
     },
-    list_lu => sub {
-        my ($scfg, $timeout, $method, $device) = @_;
-        return _remote_call($scfg, $timeout, 'lookup', $scfg->{subsysnqn}, $scfg->{pool}, $device);
+    list_lu => sub($scfg, $timeout, $method, $device) {
+        return remote_call($scfg, $timeout, 'lookup', $scfg->{subsysnqn}, $scfg->{pool}, $device);
     },
 );
 
-sub run_lun_command {
-    my ($scfg, $timeout, $method, @params) = @_;
-
+sub run_lun_command($scfg, $timeout, $method, @params) {
     die "unknown command '$method'\n" if !exists($lun_cmd_map{$method});
     return $lun_cmd_map{$method}->($scfg, $timeout, $method, @params);
 }

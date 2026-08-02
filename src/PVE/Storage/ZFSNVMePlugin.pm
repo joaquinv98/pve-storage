@@ -1,7 +1,6 @@
 package PVE::Storage::ZFSNVMePlugin;
 
-use strict;
-use warnings;
+use v5.36;
 
 use File::Path qw(make_path);
 use IO::Socket::IP;
@@ -20,13 +19,45 @@ my $nvme = '/usr/sbin/nvme';
 my $secret_dir = '/etc/pve/priv/storage';
 my $runtime_dir = '/run/pve-storage';
 my $max_paths = 16;
+my $max_hosts = 64;
 
-sub verify_nvme_nqn {
-    my ($value, $noerr) = @_;
+my $RE_NQN = qr{
+    \A
+    nqn \.
+    [A-Za-z0-9] [A-Za-z0-9.-]*
+    :
+    [A-Za-z0-9] [A-Za-z0-9._:-]*
+    \z
+}nxx;
+my $RE_IPV4_PORTAL = qr{
+    \A
+    (?<address> [^:]+)
+    (?: : (?<port> [0-9]+))?
+    \z
+}nxx;
+my $RE_IPV6_PORTAL = qr{
+    \A
+    \[ (?<address> [^\]]+) \]
+    (?: : (?<port> [0-9]+))?
+    \z
+}nxx;
+my $RE_HOST_IFACE = qr{\A [A-Za-z0-9_.-]+ \z}nxx;
+my $RE_DHCHAP_KEY = qr{
+    \A DHHC-1 : [0-9A-Fa-f]{2} : [A-Za-z0-9+/=]+ : \z
+}nxx;
+my $RE_NVME_CONTROLLER = qr{\A nvme [0-9]+ \z}nxx;
+my $RE_NVME_SUBSYSTEM = qr{\A nvme-subsys [0-9]+ \z}nxx;
+my $RE_NVME_NAMESPACE = qr{\A nvme [0-9]+ n [0-9]+ \z}nxx;
+my $RE_TRADDR = qr{(?: \A | ,) traddr=(?<value>[^,]+)}nxx;
+my $RE_TRSVCID = qr{(?: \A | ,) trsvcid=(?<value>[^,]+)}nxx;
+my $RE_HOST_IFACE_ADDRESS = qr{(?: \A | ,) host_iface=(?<value>[^,]+)}nxx;
+my $RE_PROC_FD = qr{\A /proc/ (?<pid>[0-9]+) /}nxx;
+
+sub verify_nvme_nqn($value, $noerr = undef) {
 
     if (
         length($value) > 223
-        || $value !~ m/^nqn\.[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9][A-Za-z0-9._:-]*$/
+        || $value !~ $RE_NQN
     ) {
         return undef if $noerr;
         die "value is not a valid NVMe qualified name\n";
@@ -35,18 +66,17 @@ sub verify_nvme_nqn {
     return $value;
 }
 
-sub parse_nvme_portals {
-    my ($value, $noerr) = @_;
+sub parse_nvme_portals($value, $noerr = undef) {
     my $result = [];
     my $seen = {};
 
     for my $entry (split(/,/, $value // '')) {
         $entry = trim($entry);
         my ($address, $port, $family);
-        if ($entry =~ m/^\[([^\]]+)\](?::([0-9]+))?$/) {
-            ($address, $port, $family) = ($1, $2 // 4420, 'ipv6');
-        } elsif ($entry =~ m/^([^:]+)(?::([0-9]+))?$/) {
-            ($address, $port, $family) = ($1, $2 // 4420, 'ipv4');
+        if ($entry =~ $RE_IPV6_PORTAL) {
+            ($address, $port, $family) = ($+{address}, $+{port} // 4420, 'ipv6');
+        } elsif ($entry =~ $RE_IPV4_PORTAL) {
+            ($address, $port, $family) = ($+{address}, $+{port} // 4420, 'ipv4');
         } else {
             return undef if $noerr;
             die "invalid NVMe/TCP portal '$entry'\n";
@@ -54,8 +84,8 @@ sub parse_nvme_portals {
 
         if (
             !PVE::JSONSchema::pve_verify_ip($address, 1)
-            || ($family eq 'ipv4' && $address =~ /:/)
-            || ($family eq 'ipv6' && $address !~ /:/)
+            || ($family eq 'ipv4' && index($address, ':') >= 0)
+            || ($family eq 'ipv6' && index($address, ':') < 0)
             || $port < 1
             || $port > 65535
         ) {
@@ -67,18 +97,18 @@ sub parse_nvme_portals {
             return undef if $noerr;
             die "duplicate NVMe/TCP portal '$entry'\n";
         }
-        push @$result, {
+        push $result->@*, {
             address => $address,
             port => int($port),
             family => $family,
         };
-        if (scalar(@$result) > $max_paths) {
+        if (scalar($result->@*) > $max_paths) {
             return undef if $noerr;
             die "at most $max_paths NVMe/TCP portals are supported\n";
         }
     }
 
-    if (!@$result) {
+    if (!$result->@*) {
         return undef if $noerr;
         die "at least one NVMe/TCP portal is required\n";
     }
@@ -86,26 +116,24 @@ sub parse_nvme_portals {
     return $result;
 }
 
-sub verify_nvme_portals {
-    my ($value, $noerr) = @_;
+my sub verify_nvme_portals($value, $noerr = undef) {
     return undef if !parse_nvme_portals($value, $noerr);
     return $value;
 }
 
-sub parse_nvme_host_ifaces {
-    my ($value, $noerr) = @_;
+sub parse_nvme_host_ifaces($value, $noerr = undef) {
     my $result = [];
 
     for my $iface (split(/,/, $value // '')) {
         $iface = trim($iface);
-        if (length($iface) < 1 || length($iface) > 15 || $iface !~ m/^[A-Za-z0-9_.-]+$/) {
+        if (length($iface) < 1 || length($iface) > 15 || $iface !~ $RE_HOST_IFACE) {
             return undef if $noerr;
             die "invalid NVMe/TCP host interface '$iface'\n";
         }
-        push @$result, $iface;
+        push $result->@*, $iface;
     }
 
-    if (!@$result) {
+    if (!$result->@*) {
         return undef if $noerr;
         die "at least one NVMe/TCP host interface is required\n";
     }
@@ -113,35 +141,59 @@ sub parse_nvme_host_ifaces {
     return $result;
 }
 
-sub verify_nvme_host_ifaces {
-    my ($value, $noerr) = @_;
+sub parse_nvme_host_nqns($value, $noerr = undef) {
+    my $result = [];
+    my $seen = {};
+
+    for my $hostnqn (split(/,/, $value // '')) {
+        $hostnqn = trim($hostnqn);
+        if (!verify_nvme_nqn($hostnqn, 1) || $seen->{$hostnqn}++) {
+            return undef if $noerr;
+            die "invalid or duplicate NVMe host NQN '$hostnqn'\n";
+        }
+        push $result->@*, $hostnqn;
+        if (scalar($result->@*) > $max_hosts) {
+            return undef if $noerr;
+            die "at most $max_hosts NVMe host NQNs are supported\n";
+        }
+    }
+
+    if (!$result->@*) {
+        return undef if $noerr;
+        die "at least one NVMe host NQN is required\n";
+    }
+
+    return $result;
+}
+
+my sub verify_nvme_host_ifaces($value, $noerr = undef) {
     return undef if !parse_nvme_host_ifaces($value, $noerr);
     return $value;
 }
 
-sub _configured_portals {
-    my ($scfg) = @_;
+my sub verify_nvme_host_nqns($value, $noerr = undef) {
+    return undef if !parse_nvme_host_nqns($value, $noerr);
+    return $value;
+}
 
+sub _configured_portals($scfg) {
     my $portals = parse_nvme_portals($scfg->{'nvme-portals'});
     my $ifaces = parse_nvme_host_ifaces($scfg->{'nvme-host-ifaces'});
     die "nvme-host-ifaces must contain one interface for each nvme-portals entry\n"
-        if scalar(@$ifaces) != scalar(@$portals);
+        if scalar($ifaces->@*) != scalar($portals->@*);
 
-    for (my $i = 0; $i < scalar(@$portals); $i++) {
+    for (my $i = 0; $i < scalar($portals->@*); $i++) {
         $portals->[$i]->{host_iface} = $ifaces->[$i];
     }
     return $portals;
 }
 
-sub _local_iface_exists {
-    my ($iface) = @_;
+sub _local_iface_exists($iface) {
     return -d "/sys/class/net/$iface";
 }
 
-sub _validate_local_ifaces {
-    my ($portals) = @_;
-
-    for my $portal (@$portals) {
+sub _validate_local_ifaces($portals) {
+    for my $portal ($portals->@*) {
         my $iface = $portal->{host_iface};
         die "NVMe/TCP host interface '$iface' does not exist on this node\n"
             if !_local_iface_exists($iface);
@@ -151,19 +203,20 @@ sub _validate_local_ifaces {
 PVE::JSONSchema::register_format('pve-storage-nvme-nqn', \&verify_nvme_nqn);
 PVE::JSONSchema::register_format('pve-storage-nvme-portals', \&verify_nvme_portals);
 PVE::JSONSchema::register_format('pve-storage-nvme-host-ifaces', \&verify_nvme_host_ifaces);
+PVE::JSONSchema::register_format('pve-storage-nvme-host-nqns', \&verify_nvme_host_nqns);
 
-sub type {
+sub type($class) {
     return 'zfsnvme';
 }
 
-sub plugindata {
+sub plugindata($class) {
     return {
         content => [{ images => 1 }, { images => 1 }],
         'sensitive-properties' => { 'dhchap-key' => 1 },
     };
 }
 
-sub properties {
+sub properties($class) {
     return {
         subsysnqn => {
             description => "NVMe subsystem qualified name.",
@@ -183,6 +236,13 @@ sub properties {
             type => 'string',
             format => 'pve-storage-nvme-host-ifaces',
             maxLength => 512,
+        },
+        'nvme-host-nqns' => {
+            description =>
+                "Comma-separated /etc/nvme/hostnqn values for every cluster node allowed to use this storage.",
+            type => 'string',
+            format => 'pve-storage-nvme-host-nqns',
+            maxLength => 8192,
         },
         'dhchap-key' => {
             description => "NVMe DH-HMAC-CHAP key in secret representation format.",
@@ -234,12 +294,13 @@ sub properties {
     };
 }
 
-sub options {
+sub options($class) {
     return {
         server => { fixed => 1 },
         subsysnqn => { fixed => 1 },
         'nvme-portals' => { fixed => 1 },
         'nvme-host-ifaces' => { optional => 1 },
+        'nvme-host-nqns' => { optional => 1 },
         pool => { fixed => 1 },
         blocksize => { fixed => 1 },
         sparse => { optional => 1 },
@@ -257,9 +318,7 @@ sub options {
     };
 }
 
-sub _validate_fail_fast_timeout {
-    my ($config, $default_ctrl_loss_tmo) = @_;
-
+sub _validate_fail_fast_timeout($config, $default_ctrl_loss_tmo = undef) {
     my $fast = $config->{'nvme-fast-io-fail-tmo'};
     return if !defined($fast);
 
@@ -271,9 +330,7 @@ sub _validate_fail_fast_timeout {
         if $fast > $ctrl;
 }
 
-sub check_config {
-    my ($class, $section_id, $config, $create, $skip_schema_check) = @_;
-
+sub check_config($class, $section_id, $config, $create, $skip_schema_check) {
     if ($create) {
         $config->{sparse} = 1 if !defined($config->{sparse});
         $config->{'nvme-iopolicy'} //= 'round-robin';
@@ -289,24 +346,22 @@ sub check_config {
     } elsif (defined($config->{'nvme-host-ifaces'})) {
         parse_nvme_host_ifaces($config->{'nvme-host-ifaces'});
     }
+    parse_nvme_host_nqns($config->{'nvme-host-nqns'})
+        if defined($config->{'nvme-host-nqns'});
     _validate_fail_fast_timeout($config, $create ? 600 : undef);
     return $class->SUPER::check_config($section_id, $config, $create, $skip_schema_check);
 }
 
-sub zfs_lun_provider {
+sub zfs_lun_provider($class, $scfg = undef) {
     return 'PVE::Storage::LunCmd::NVMET';
 }
 
-sub zfs_request {
-    my ($class, $scfg, @params) = @_;
-
+sub zfs_request($class, $scfg, @params) {
     local $scfg->{portal} = $scfg->{server};
     return $class->SUPER::zfs_request($scfg, @params);
 }
 
-sub zfs_list_zvol {
-    my ($class, $scfg) = @_;
-
+sub zfs_list_zvol($class, $scfg) {
     my $list = $class->SUPER::zfs_list_zvol($scfg);
     my $properties = $class->zfs_request(
         $scfg,
@@ -325,25 +380,24 @@ sub zfs_list_zvol {
         my ($dataset, $nqn, $source) = split(/\t/, $line, 3);
         next if !defined($source) || ($source ne 'local' && $source ne 'received');
         next if !defined($nqn) || $nqn ne $scfg->{subsysnqn};
-        next if $dataset !~ m/^\Q$scfg->{pool}\E\/(.+)$/;
-        $owned->{$1} = 1;
+        my $prefix = "$scfg->{pool}/";
+        next if index($dataset, $prefix) != 0;
+        $owned->{substr($dataset, length($prefix))} = 1;
     }
-    for my $name (keys %$list) {
+    for my $name (keys $list->%*) {
         delete $list->{$name} if !$owned->{$name};
     }
     return $list;
 }
 
-sub _secret_path {
-    my ($storeid) = @_;
+my sub secret_path($storeid) {
     return "$secret_dir/$storeid.nvme-dhchap";
 }
 
-sub _assert_unique_target {
-    my ($storeid, $scfg, $cfg) = @_;
-
+sub _assert_unique_target($storeid, $scfg, $cfg = undef) {
     $cfg //= PVE::Storage::config();
-    for my $other_id (keys %{$cfg->{ids} // {}}) {
+    my $ids = $cfg->{ids} // {};
+    for my $other_id (keys $ids->%*) {
         next if $other_id eq $storeid;
         my $other = $cfg->{ids}->{$other_id};
         next if ($other->{type} // '') ne 'zfsnvme';
@@ -356,54 +410,46 @@ sub _assert_unique_target {
     }
 }
 
-sub _validate_secret {
-    my ($key) = @_;
+sub _validate_secret($key) {
     die "missing NVMe DH-HMAC-CHAP key\n" if !defined($key) || $key eq '';
     die "invalid NVMe DH-HMAC-CHAP key representation\n"
-        if $key !~ m/^DHHC-1:[0-9A-Fa-f]{2}:[A-Za-z0-9+\/=]+:$/;
+        if $key !~ $RE_DHCHAP_KEY;
     return $key;
 }
 
-sub _set_secret {
-    my ($storeid, $key) = @_;
-
+my sub set_secret($storeid, $key) {
     _validate_secret($key);
     make_path($secret_dir, { mode => 0700 });
-    file_set_contents(_secret_path($storeid), "$key\n", 0600);
+    file_set_contents(secret_path($storeid), "$key\n", 0600);
 }
 
-sub _get_secret {
-    my ($storeid) = @_;
-
-    my $key = file_read_firstline(_secret_path($storeid));
+my sub get_secret($storeid) {
+    my $key = file_read_firstline(secret_path($storeid));
     return _validate_secret($key);
 }
 
-sub _delete_secret {
-    my ($storeid) = @_;
-    unlink(_secret_path($storeid));
+my sub delete_secret($storeid) {
+    unlink(secret_path($storeid));
 }
 
-sub on_add_hook {
-    my ($class, $storeid, $scfg, %sensitive) = @_;
-
+sub on_add_hook($class, $storeid, $scfg, %sensitive) {
     _configured_portals($scfg);
+    parse_nvme_host_nqns($scfg->{'nvme-host-nqns'});
     _assert_unique_target($storeid, $scfg);
-    _set_secret($storeid, $sensitive{'dhchap-key'});
+    set_secret($storeid, $sensitive{'dhchap-key'});
     return;
 }
 
-sub on_update_hook_full {
-    my ($class, $storeid, $scfg, $update, $delete, $sensitive) = @_;
-
-    my %prospective = (%$scfg, %$update);
-    delete @prospective{@$delete} if $delete;
+sub on_update_hook_full($class, $storeid, $scfg, $update, $delete, $sensitive) {
+    my %prospective = ($scfg->%*, $update->%*);
+    delete @prospective{$delete->@*} if $delete;
     verify_nvme_nqn($prospective{subsysnqn});
     _configured_portals(\%prospective);
+    parse_nvme_host_nqns($prospective{'nvme-host-nqns'});
     _validate_fail_fast_timeout(\%prospective, 600);
     _assert_unique_target($storeid, \%prospective);
 
-    my $old_key = file_read_firstline(_secret_path($storeid));
+    my $old_key = file_read_firstline(secret_path($storeid));
     my $key = exists($sensitive->{'dhchap-key'}) ? $sensitive->{'dhchap-key'} : $old_key;
     _validate_secret($key);
 
@@ -415,18 +461,16 @@ sub on_update_hook_full {
     die "online NVMe DH-HMAC-CHAP key rotation is not supported; create a new storage/NQN\n"
         if defined($old_key) && $key ne $old_key;
 
-    _set_secret($storeid, $key) if exists($sensitive->{'dhchap-key'});
+    set_secret($storeid, $key) if exists($sensitive->{'dhchap-key'});
     return;
 }
 
-sub on_delete_hook {
-    my ($class, $storeid, $scfg) = @_;
-
+sub on_delete_hook($class, $storeid, $scfg) {
     # This hook runs only on the API node, while another cluster node can still
     # be using the shared storage. Requiring an empty owned dataset makes the
     # check cluster-wide without relying on remote process inspection.
     my $volumes = $class->zfs_list_zvol($scfg);
-    my @volumes = sort keys %$volumes;
+    my @volumes = sort keys $volumes->%*;
     die "refusing to remove NVMe storage '$storeid': it still contains "
         . join(', ', @volumes) . "\n"
         if @volumes;
@@ -437,18 +481,15 @@ sub on_delete_hook {
     $class->deactivate_storage($storeid, $scfg);
     eval { PVE::Storage::LunCmd::NVMET::delete_target($scfg) };
     log_warn("failed to remove NVMe target for '$storeid': $@") if $@;
-    _delete_secret($storeid);
+    delete_secret($storeid);
     return;
 }
 
-sub _runtime_config_path {
-    my ($storeid) = @_;
+my sub runtime_config_path($storeid) {
     return "$runtime_dir/nvme-$storeid.json";
 }
 
-sub _write_runtime_config {
-    my ($storeid, $scfg, $hostnqn, $hostid, $key, $portals) = @_;
-
+my sub write_runtime_config($storeid, $scfg, $hostnqn, $hostid, $key, $portals) {
     my $ports = [
         map {
             {
@@ -466,7 +507,7 @@ sub _write_runtime_config {
                     ? (nr_io_queues => $scfg->{'nvme-nr-io-queues'})
                     : ()),
             }
-        } @$portals
+        } $portals->@*
     ];
     my $config = [
         {
@@ -485,26 +526,25 @@ sub _write_runtime_config {
 
     make_path($runtime_dir, { mode => 0700 });
     my $json = JSON->new->canonical->utf8->encode($config);
-    my $path = _runtime_config_path($storeid);
+    my $path = runtime_config_path($storeid);
     file_set_contents($path, "$json\n", 0600);
     return $path;
 }
 
-sub _controller_states {
-    my ($nqn) = @_;
+my sub controller_states($nqn) {
     my $states = {};
 
     opendir(my $dh, '/sys/class/nvme') or return $states;
     while (defined(my $entry = readdir($dh))) {
-        next if $entry !~ /^nvme[0-9]+$/;
+        next if $entry !~ $RE_NVME_CONTROLLER;
         my $base = "/sys/class/nvme/$entry";
         my $subsys = file_read_firstline("$base/subsysnqn");
         next if !defined($subsys) || $subsys ne $nqn;
         my $address = file_read_firstline("$base/address") // '';
         my $state = file_read_firstline("$base/state") // 'unknown';
-        my ($traddr) = $address =~ /(?:^|,)traddr=([^,]+)/;
-        my ($trsvcid) = $address =~ /(?:^|,)trsvcid=([^,]+)/;
-        my ($host_iface) = $address =~ /(?:^|,)host_iface=([^,]+)/;
+        my $traddr = $address =~ $RE_TRADDR ? $+{value} : undef;
+        my $trsvcid = $address =~ $RE_TRSVCID ? $+{value} : undef;
+        my $host_iface = $address =~ $RE_HOST_IFACE_ADDRESS ? $+{value} : undef;
         next if !defined($traddr) || !defined($trsvcid);
         $states->{"$traddr:$trsvcid"} = {
             device => "/dev/$entry",
@@ -516,20 +556,19 @@ sub _controller_states {
     return $states;
 }
 
-sub _namespace_devices {
-    my ($nqn) = @_;
+my sub namespace_devices($nqn) {
     my $devices = {};
 
     opendir(my $dh, '/sys/class/nvme-subsystem') or return $devices;
     while (defined(my $entry = readdir($dh))) {
-        next if $entry !~ /^nvme-subsys[0-9]+$/;
+        next if $entry !~ $RE_NVME_SUBSYSTEM;
         my $base = "/sys/class/nvme-subsystem/$entry";
         my $subsys = file_read_firstline("$base/subsysnqn");
         next if !defined($subsys) || $subsys ne $nqn;
 
         opendir(my $subsys_dh, $base) or next;
         while (defined(my $device = readdir($subsys_dh))) {
-            next if $device !~ /^nvme[0-9]+n[0-9]+$/;
+            next if $device !~ $RE_NVME_NAMESPACE;
             $devices->{"/dev/$device"} = $device if -b "/dev/$device";
         }
         closedir($subsys_dh);
@@ -538,16 +577,15 @@ sub _namespace_devices {
     return $devices;
 }
 
-sub _namespace_openers {
-    my ($nqn) = @_;
-    my $devices = _namespace_devices($nqn);
-    return [] if !%$devices;
+sub _namespace_openers($nqn) {
+    my $devices = namespace_devices($nqn);
+    return [] if !$devices->%*;
 
     my %openers;
     for my $fd (glob('/proc/[0-9]*/fd/[0-9]*')) {
         my $target = readlink($fd);
         next if !defined($target) || !exists($devices->{$target});
-        my ($pid) = $fd =~ m!^/proc/([0-9]+)/!;
+        my $pid = $fd =~ $RE_PROC_FD ? $+{pid} : undef;
         next if !defined($pid);
         my $comm = eval { file_read_firstline("/proc/$pid/comm") } // 'unknown';
         $openers{"$pid:$target"} = "$comm (PID $pid, $target)";
@@ -555,7 +593,7 @@ sub _namespace_openers {
 
     # Kernel consumers such as device-mapper do not necessarily keep a userspace
     # file descriptor open, but expose their dependency in the holders directory.
-    for my $path (keys %$devices) {
+    for my $path (keys $devices->%*) {
         my $device = $devices->{$path};
         my $holders = "/sys/class/block/$device/holders";
         opendir(my $holders_dh, $holders) or next;
@@ -569,9 +607,7 @@ sub _namespace_openers {
     return [sort values %openers];
 }
 
-sub _portal_reachable {
-    my ($portal) = @_;
-
+my sub portal_reachable($portal) {
     my $socket = IO::Socket::IP->new(
         PeerHost => $portal->{address},
         PeerPort => $portal->{port},
@@ -583,11 +619,9 @@ sub _portal_reachable {
     return 1;
 }
 
-sub _live_portal_count {
-    my ($states, $portals) = @_;
-
+sub _live_portal_count($states, $portals) {
     my $live = 0;
-    for my $portal (@$portals) {
+    for my $portal ($portals->@*) {
         my $id = "$portal->{address}:$portal->{port}";
         my $controller = $states->{$id};
         $live++
@@ -598,9 +632,7 @@ sub _live_portal_count {
     return $live;
 }
 
-sub _connect_portal {
-    my ($config_path, $scfg, $portal) = @_;
-
+sub _connect_portal($config_path, $scfg, $portal) {
     my $cmd = [
         $nvme,
         'connect',
@@ -624,21 +656,19 @@ sub _connect_portal {
         $scfg->{'nvme-ctrl-loss-tmo'} // 600,
     ];
     if (defined(my $fast = $scfg->{'nvme-fast-io-fail-tmo'})) {
-        push @$cmd, '--fast_io_fail_tmo', $fast;
+        push $cmd->@*, '--fast_io_fail_tmo', $fast;
     }
     if (my $queues = $scfg->{'nvme-nr-io-queues'}) {
-        push @$cmd, '--nr-io-queues', $queues;
+        push $cmd->@*, '--nr-io-queues', $queues;
     }
 
     run_command($cmd, timeout => 10, quiet => 1, errmsg => "NVMe/TCP connect failed");
 }
 
-sub _set_iopolicy {
-    my ($nqn, $policy) = @_;
-
+my sub set_iopolicy($nqn, $policy) {
     opendir(my $dh, '/sys/class/nvme-subsystem') or return;
     while (defined(my $entry = readdir($dh))) {
-        next if $entry !~ /^nvme-subsys[0-9]+$/;
+        next if $entry !~ $RE_NVME_SUBSYSTEM;
         my $base = "/sys/class/nvme-subsystem/$entry";
         my $subsys = file_read_firstline("$base/subsysnqn");
         next if !defined($subsys) || $subsys ne $nqn;
@@ -650,9 +680,7 @@ sub _set_iopolicy {
     closedir($dh);
 }
 
-sub activate_storage {
-    my ($class, $storeid, $scfg, $cache) = @_;
-
+sub activate_storage($class, $storeid, $scfg, $cache = undef) {
     $cache //= {};
 
     die "nvme-cli is not installed\n" if !-x $nvme;
@@ -662,7 +690,7 @@ sub activate_storage {
     my $portals = _configured_portals($scfg);
     _validate_local_ifaces($portals);
     _assert_unique_target($storeid, $scfg);
-    my $states = _controller_states($scfg->{subsysnqn});
+    my $states = controller_states($scfg->{subsysnqn});
     my $force_reconcile =
         delete($cache->{'zfsnvme-force-reconcile'}->{$storeid}) // 0;
     my $live = _live_portal_count($states, $portals);
@@ -672,9 +700,9 @@ sub activate_storage {
     # reconciled by their individual operations, so avoid four SSH round-trips
     # on every status poll. Missing namespaces explicitly force the slow path
     # from activate_volume().
-    if (!$force_reconcile && $live == scalar(@$portals)) {
-        die "missing NVMe DH-HMAC-CHAP key\n" if !-s _secret_path($storeid);
-        _set_iopolicy($scfg->{subsysnqn}, $scfg->{'nvme-iopolicy'} // 'round-robin');
+    if (!$force_reconcile && $live == scalar($portals->@*)) {
+        die "missing NVMe DH-HMAC-CHAP key\n" if !-s secret_path($storeid);
+        set_iopolicy($scfg->{subsysnqn}, $scfg->{'nvme-iopolicy'} // 'round-robin');
         return 1;
     }
 
@@ -683,20 +711,28 @@ sub activate_storage {
     my $hostid = file_read_firstline('/etc/nvme/hostid')
         // die "missing /etc/nvme/hostid\n";
     verify_nvme_nqn($hostnqn);
-    my $key = _get_secret($storeid);
+    my $hostnqns = parse_nvme_host_nqns($scfg->{'nvme-host-nqns'});
+    my $local_host_is_allowed = grep { $_ eq $hostnqn } $hostnqns->@*;
+    die "local NVMe host NQN '$hostnqn' is missing from nvme-host-nqns\n"
+        if !$local_host_is_allowed;
+    my $key = get_secret($storeid);
     my $target_portals = [
-        map { "$_->{family},$_->{address},$_->{port}" } @$portals
+        map { "$_->{family},$_->{address},$_->{port}" } $portals->@*
     ];
 
-    PVE::Storage::LunCmd::NVMET::ensure_target($scfg, $hostnqn, $target_portals);
-    PVE::Storage::LunCmd::NVMET::set_host_key($scfg, $hostnqn, $key);
-    PVE::Storage::LunCmd::NVMET::allow_host($scfg, $hostnqn);
+    PVE::Storage::LunCmd::NVMET::ensure_target($scfg, $target_portals);
+    for my $allowed_hostnqn ($hostnqns->@*) {
+        PVE::Storage::LunCmd::NVMET::ensure_host($scfg, $allowed_hostnqn);
+        PVE::Storage::LunCmd::NVMET::set_host_key($scfg, $allowed_hostnqn, $key);
+        PVE::Storage::LunCmd::NVMET::allow_host($scfg, $allowed_hostnqn);
+    }
     PVE::Storage::LunCmd::NVMET::reconcile($scfg);
+    PVE::Storage::LunCmd::NVMET::publish_target($scfg, $target_portals);
 
     my $config_path =
-        _write_runtime_config($storeid, $scfg, $hostnqn, $hostid, $key, $portals);
-    $states = _controller_states($scfg->{subsysnqn});
-    for my $portal (@$portals) {
+        write_runtime_config($storeid, $scfg, $hostnqn, $hostid, $key, $portals);
+    $states = controller_states($scfg->{subsysnqn});
+    for my $portal ($portals->@*) {
         my $id = "$portal->{address}:$portal->{port}";
         my $needs_rebind = 0;
         if (my $controller = $states->{$id}) {
@@ -709,7 +745,7 @@ sub activate_storage {
                 quiet => 1,
             );
         }
-        if (!_portal_reachable($portal)) {
+        if (!portal_reachable($portal)) {
             log_warn("NVMe/TCP portal '$id' is unreachable");
             next;
         }
@@ -722,7 +758,7 @@ sub activate_storage {
         if ($needs_rebind) {
             my $rebound = 0;
             for (my $attempt = 0; $attempt < 40; $attempt++) {
-                $states = _controller_states($scfg->{subsysnqn});
+                $states = controller_states($scfg->{subsysnqn});
                 my $controller = $states->{$id};
                 if (
                     $controller
@@ -745,26 +781,24 @@ sub activate_storage {
     # after a target restart. Do not create duplicates, but give that recovery
     # cycle enough time to complete before declaring the storage unavailable.
     for (my $attempt = 0; $attempt < 60; $attempt++) {
-        $states = _controller_states($scfg->{subsysnqn});
+        $states = controller_states($scfg->{subsysnqn});
         last if _live_portal_count($states, $portals);
         select(undef, undef, undef, 0.25);
     }
     $live = _live_portal_count($states, $portals);
     die "no live NVMe/TCP path for storage '$storeid'\n" if !$live;
-    log_warn("storage '$storeid' is degraded: $live/" . scalar(@$portals) . " paths live")
-        if $live < scalar(@$portals);
+    log_warn("storage '$storeid' is degraded: $live/" . scalar($portals->@*) . " paths live")
+        if $live < scalar($portals->@*);
 
-    _set_iopolicy($scfg->{subsysnqn}, $scfg->{'nvme-iopolicy'} // 'round-robin');
+    set_iopolicy($scfg->{subsysnqn}, $scfg->{'nvme-iopolicy'} // 'round-robin');
     return 1;
 }
 
-sub deactivate_storage {
-    my ($class, $storeid, $scfg, $cache) = @_;
-
+sub deactivate_storage($class, $storeid, $scfg, $cache = undef) {
     my $openers = _namespace_openers($scfg->{subsysnqn});
     die "refusing to disconnect NVMe storage '$storeid': namespace in use by "
-        . join(', ', @$openers) . "\n"
-        if @$openers;
+        . join(', ', $openers->@*) . "\n"
+        if $openers->@*;
 
     run_command(
         [$nvme, 'disconnect', '--nqn', $scfg->{subsysnqn}],
@@ -772,13 +806,11 @@ sub deactivate_storage {
         noerr => 1,
         quiet => 1,
     ) if -x $nvme;
-    unlink(_runtime_config_path($storeid));
+    unlink(runtime_config_path($storeid));
     return 1;
 }
 
-sub path {
-    my ($class, $scfg, $volname, $storeid, $snapname) = @_;
-
+sub path($class, $scfg, $volname, $storeid, $snapname = undef) {
     die "direct access to snapshots not implemented\n" if defined($snapname);
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
     my $uuid = $class->zfs_get_lu_name($scfg, $name);
@@ -786,17 +818,21 @@ sub path {
     return ($path, $vmid, $vtype);
 }
 
-sub qemu_blockdev_options {
-    my ($class, $scfg, $storeid, $volname, $machine_version, $options) = @_;
-
+sub qemu_blockdev_options($class, $scfg, $storeid, $volname, $machine_version, $options) {
     die "direct access to snapshots not implemented\n" if $options->{'snapshot-name'};
     my ($path) = $class->path($scfg, $volname, $storeid);
     return { driver => 'host_device', filename => $path };
 }
 
-sub activate_volume {
-    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
-
+sub activate_volume(
+    $class,
+    $storeid,
+    $scfg,
+    $volname,
+    $snapname = undef,
+    $cache = undef,
+    $hints = undef,
+) {
     die "unable to activate snapshot from remote zfs storage\n" if $snapname;
     my ($path) = $class->path($scfg, $volname, $storeid);
     if (!-b $path) {
@@ -811,16 +847,19 @@ sub activate_volume {
     return 1;
 }
 
-sub deactivate_volume {
-    my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
-
+sub deactivate_volume(
+    $class,
+    $storeid,
+    $scfg,
+    $volname,
+    $snapname = undef,
+    $cache = undef,
+) {
     die "unable to deactivate snapshot from remote zfs storage\n" if $snapname;
     return 1;
 }
 
-sub volume_resize {
-    my ($class, $scfg, $storeid, $volname, $size, $running, $snapname) = @_;
-
+sub volume_resize($class, $scfg, $storeid, $volname, $size, $running, $snapname) {
     # QEMU's block_resize command explicitly cannot resize host block devices.
     # Reject before changing the zvol/namespace, otherwise qemu-server would
     # leave the backend larger while the running VM and its config keep the old
@@ -832,12 +871,10 @@ sub volume_resize {
     );
 }
 
-sub alloc_image {
-    my ($class, $storeid, $scfg, $vmid, $fmt, $name, $size) = @_;
-
+sub alloc_image($class, $storeid, $scfg, $vmid, $fmt, $name, $size) {
     die "unsupported format '$fmt'" if $fmt ne 'raw';
     die "illegal name '$name' - should be 'vm-$vmid-*'\n"
-        if $name && $name !~ m/^vm-$vmid-/;
+        if $name && index($name, "vm-$vmid-") != 0;
     my $volname = $name // $class->find_free_diskname($storeid, $scfg, $vmid, $fmt);
 
     $class->zfs_create_zvol($scfg, $volname, $size);

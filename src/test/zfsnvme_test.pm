@@ -1,7 +1,6 @@
 package PVE::Storage::TestZFSNVMe;
 
-use strict;
-use warnings;
+use v5.36;
 
 use lib qw(..);
 
@@ -25,6 +24,18 @@ is(
 ok(
     !PVE::Storage::ZFSNVMePlugin::verify_nvme_nqn('not-an-nqn', 1),
     'rejects an invalid NQN',
+);
+
+my $hostnqn_a = 'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc';
+my $hostnqn_b = 'nqn.2014-08.org.nvmexpress:uuid:abcdefab-abcd-abcd-abcd-abcdefabcdef';
+is_deeply(
+    PVE::Storage::ZFSNVMePlugin::parse_nvme_host_nqns("$hostnqn_a,$hostnqn_b"),
+    [$hostnqn_a, $hostnqn_b],
+    'parses the complete cluster NVMe host allow-list',
+);
+ok(
+    !PVE::Storage::ZFSNVMePlugin::parse_nvme_host_nqns("$hostnqn_a,$hostnqn_a", 1),
+    'rejects duplicate NVMe host NQNs',
 );
 
 is_deeply(
@@ -204,6 +215,47 @@ is_deeply(
     'uses the QEMU host_device driver',
 );
 
+eval {
+    PVE::Storage::ZFSNVMePlugin->activate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+        'snapshot-with-hints',
+        {},
+        { 'guest-type' => 'qemu' },
+    );
+};
+like(
+    $@,
+    qr/unable to activate snapshot from remote zfs storage/,
+    'activate_volume accepts the current storage API hints argument',
+);
+
+$nvme_mock->redefine(activate_storage => sub { die "activation attempted\n" });
+eval {
+    PVE::Storage::ZFSNVMePlugin->activate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+    );
+};
+like(
+    $@,
+    qr/activation attempted/,
+    'activate_volume accepts the short direct-call form used by cloud-init',
+);
+$nvme_mock->unmock('activate_storage');
+
+is(
+    PVE::Storage::ZFSNVMePlugin->deactivate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+    ),
+    1,
+    'deactivate_volume accepts the short direct-call form',
+);
+
 my $lio_mock = Test::MockModule->new('PVE::Storage::LunCmd::LIO');
 my @provider_args;
 $lio_mock->redefine(
@@ -230,7 +282,7 @@ is($provider_args[3], 'guid', 'provider parameters are preserved');
 my @connect_cmd;
 $nvme_mock->redefine(
     run_command => sub {
-        @connect_cmd = @{$_[0]};
+        @connect_cmd = $_[0]->@*;
         return 0;
     },
 );
@@ -281,10 +333,11 @@ $nvme_mock->redefine(
         die "unexpected mocked ZFS method '$method'\n";
     },
 );
+my $owned_zvols = PVE::Storage::ZFSNVMePlugin->zfs_list_zvol(
+    { pool => 'tank', subsysnqn => 'nqn.2026-07.example:owned' },
+);
 is_deeply(
-    [sort keys %{PVE::Storage::ZFSNVMePlugin->zfs_list_zvol(
-        { pool => 'tank', subsysnqn => 'nqn.2026-07.example:owned' },
-    )}],
+    [sort keys $owned_zvols->%*],
     ['vm-100-disk-0'],
     'volume listing requires a local or received ownership property',
 );
@@ -380,6 +433,7 @@ is($@, '', 'fast I/O fail remains valid with infinite controller reconnect');
             {
                 subsysnqn => 'nqn.2026-07.example:test',
                 'nvme-portals' => '10.90.1.11,10.90.2.11',
+                'nvme-host-nqns' => $hostnqn_a,
             },
             { 'nvme-host-ifaces' => 'ens20,ens21' },
             undef,
@@ -404,13 +458,38 @@ PVE::Storage::LunCmd::NVMET::ensure_target(
         subsysnqn => 'nqn.2026-07.example:test',
         pool => 'tank/pve-nvme',
     },
-    'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc',
     ['ipv4,10.90.1.11,4420'],
 );
 like(
     $helper_calls[0]->{input},
     qr/current_model.*current_serial.*refusing to take over existing NVMe subsystem/s,
     'target reconcile verifies model and deterministic serial before taking over a subsystem',
+);
+my ($ensure_port_body) = $helper_calls[0]->{input} =~ /^ensure_port\(\) \{\n(?<body>.*?)^\}/ms;
+ok(defined($ensure_port_body), 'remote helper contains the port preparation function');
+unlike(
+    $ensure_port_body,
+    qr{ln[ ]-s},
+    'target setup does not publish a subsystem before ACL and namespace reconciliation',
+);
+like(
+    $helper_calls[0]->{input},
+    qr{^publish_target\(\).*?ln[ ]-s}ms,
+    'the remote helper exposes the subsystem only in its publish operation',
+);
+
+@helper_calls = ();
+PVE::Storage::LunCmd::NVMET::publish_target(
+    {
+        server => '192.0.2.10',
+        subsysnqn => 'nqn.2026-07.example:test',
+    },
+    ['ipv4,10.90.1.11,4420'],
+);
+like(
+    join(' ', $helper_calls[0]->{cmd}->@*),
+    qr/publish-target/,
+    'publishing the fully reconciled target is an explicit final operation',
 );
 
 my ($key_cmd, %key_opts);
@@ -426,7 +505,7 @@ PVE::Storage::LunCmd::NVMET::set_host_key(
     'nqn.2014-08.org.nvmexpress:uuid:12345678-1234-1234-1234-123456789abc',
     $test_key,
 );
-unlike(join(' ', @$key_cmd), qr/\Q$test_key\E/, 'DHCHAP key is absent from the process argv');
+unlike(join(' ', $key_cmd->@*), qr/\Q$test_key\E/, 'DHCHAP key is absent from the process argv');
 is($key_opts{input}, "$test_key\n", 'DHCHAP key is provided through standard input');
 
 done_testing();

@@ -35,6 +35,8 @@ check_backend() {
     registry="$root/usr/share/perl5/PVE/Storage.pm"
     if [ ! -r "$plugin" ] || [ ! -r "$registry" ] \
         || ! grep -Fq "return 'zfsnvme'" "$plugin" \
+        || ! grep -Fq "'nvme-host-nqns'" "$plugin" \
+        || ! grep -Fq "publish_target" "$plugin" \
         || ! grep -Fq 'PVE::Storage::ZFSNVMePlugin' "$registry"
     then
         echo "ERROR: $package would remove native zfsnvme backend support" >&2
@@ -54,9 +56,27 @@ check_manager() {
 
     js="$root/usr/share/pve-manager/js/pvemanagerlib.js"
     if [ ! -r "$js" ] || ! grep -Fq 'ZFSNVMeInputPanel' "$js" \
-        || ! grep -Fq 'zfsnvme' "$js"
+        || ! grep -Fq 'zfsnvme' "$js" \
+        || ! grep -Fq 'nvme-host-nqns' "$js"
     then
         echo "ERROR: $package would remove the zfsnvme web interface" >&2
+        failed=1
+    fi
+}
+
+check_docs() {
+    package=$1
+    root=$(mktemp -d "$workdir/docs.XXXXXX")
+
+    if ! dpkg-deb -x "$package" "$root"; then
+        echo "ERROR: cannot inspect candidate package $package" >&2
+        failed=1
+        return
+    fi
+
+    docs="$root/usr/share/pve-docs/pve-storage-zfsnvme-plain.html"
+    if [ ! -r "$docs" ] || ! grep -Fq 'nvme-host-nqns' "$docs"; then
+        echo "ERROR: $package would remove the zfsnvme operator documentation" >&2
         failed=1
     fi
 }
@@ -71,6 +91,9 @@ inspect() {
             ;;
         pve-manager_*.deb)
             check_manager "$package"
+            ;;
+        pve-docs_*.deb)
+            check_docs "$package"
             ;;
     esac
 }

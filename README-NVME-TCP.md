@@ -20,8 +20,9 @@ identity is persisted in ZFS user properties, and guests use the stable
   a redundant management DNS name or VIP for the storage appliance.
 - The target implementation uses the Linux configfs `nvmet` API directly and
   serializes mutations with `/run/lock/pve-nvmet.lock`.
-- Each Proxmox node uses its own Host NQN and target ACL. `allow_any_host` is
-  never enabled.
+- `nvme-host-nqns` lists every authorized cluster Host NQN. After a target
+  reboot, the first node restores the complete ACL and DHCHAP set before the
+  port links become reachable. `allow_any_host` is never enabled.
 - DH-HMAC-CHAP keys are stored in pmxcfs with mode `0600`, sent to `nvme-cli`
   through a protected libnvme JSON file, and never placed on a process command
   line.
@@ -43,6 +44,10 @@ TCP portal per failure domain, and the SSH privileges already required by the
 Proxmox ZFS-over-iSCSI backend. Every Proxmox node needs `nvme-cli`,
 `nvme-tcp`, native NVMe multipath enabled, a unique `/etc/nvme/hostnqn`, and
 identically named data interfaces.
+
+Disable cloud-init device discovery on a dedicated target after provisioning.
+Otherwise a guest cloud-init ZVOL labelled `cidata` can be mistaken for the
+target host's own NoCloud datasource during reboot.
 
 Use redundant switches and subnets. DH-HMAC-CHAP authenticates hosts but does
 not encrypt payloads; this implementation does not configure NVMe/TCP TLS.
@@ -70,7 +75,7 @@ All other lifecycle operations listed above have been exercised in the lab.
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence collected and
 [docs/UPGRADES.md](docs/UPGRADES.md) for the supported upgrade process.
 The complete engineering narrative is in
-[docs/ENGINEERING-REPORT.es.md](docs/ENGINEERING-REPORT.es.md), with the same
+[docs/ENGINEERING-REPORT-20260802.es.md](docs/ENGINEERING-REPORT-20260802.es.md), with the same
 results available as machine-readable
 [JSON](docs/validation-results.json).
 

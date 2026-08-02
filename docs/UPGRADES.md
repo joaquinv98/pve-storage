@@ -40,8 +40,10 @@ sudo ./tools/install-upgrade-guard.sh
 
 APT passes every pending package to the guard before invoking dpkg. When a
 `zfsnvme:` section exists in `/etc/pve/storage.cfg`, the guard rejects a
-`libpve-storage-perl` package without the native backend or a `pve-manager`
-package without the matching UI. The transaction stops before files change.
+`libpve-storage-perl` package without the native backend, the cluster Host NQN
+allow-list and publish-after-ACL hardening; a `pve-manager` package without the
+matching UI; or a `pve-docs` package without the operator documentation. The
+transaction stops before files change.
 
 The guard deliberately does not intercept a manual `dpkg -i`; inspect manual
 packages first:
