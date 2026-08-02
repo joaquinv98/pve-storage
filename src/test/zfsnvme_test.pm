@@ -219,6 +219,31 @@ like(
     'activate_volume accepts the current storage API hints argument',
 );
 
+$nvme_mock->redefine(activate_storage => sub { die "activation attempted\n" });
+eval {
+    PVE::Storage::ZFSNVMePlugin->activate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+    );
+};
+like(
+    $@,
+    qr/activation attempted/,
+    'activate_volume accepts the short direct-call form used by cloud-init',
+);
+$nvme_mock->unmock('activate_storage');
+
+is(
+    PVE::Storage::ZFSNVMePlugin->deactivate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+    ),
+    1,
+    'deactivate_volume accepts the short direct-call form',
+);
+
 my $lio_mock = Test::MockModule->new('PVE::Storage::LunCmd::LIO');
 my @provider_args;
 $lio_mock->redefine(

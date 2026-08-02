@@ -777,7 +777,7 @@ sub activate_volume(
     $storeid,
     $scfg,
     $volname,
-    $snapname,
+    $snapname = undef,
     $cache = undef,
     $hints = undef,
 ) {
@@ -795,7 +795,14 @@ sub activate_volume(
     return 1;
 }
 
-sub deactivate_volume($class, $storeid, $scfg, $volname, $snapname, $cache = undef) {
+sub deactivate_volume(
+    $class,
+    $storeid,
+    $scfg,
+    $volname,
+    $snapname = undef,
+    $cache = undef,
+) {
     die "unable to deactivate snapshot from remote zfs storage\n" if $snapname;
     return 1;
 }
