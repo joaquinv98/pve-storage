@@ -1,0 +1,31 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  libpve-storage-perl pve-docs pve-manager
+apt-listchanges: Reading changelogs...
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+ERROR: /var/cache/apt/archives/libpve-storage-perl_9.1.7_all.deb would remove native zfsnvme backend support
+ERROR: /var/cache/apt/archives/pve-manager_9.2.6_all.deb would remove the zfsnvme web interface
+
+The transaction was stopped before dpkg changed the node. Rebase the zfsnvme
+patches onto the candidate Proxmox versions, build replacement packages, run
+their full test suites, and retry the upgrade with those packages in the same
+APT transaction.
+
+For a one-time emergency bypass only:
+  PVE_ZFSNVME_ALLOW_UNSAFE_UPGRADE=1 apt ...
+3 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/18.0 MB of archives.
+After this operation, 201 kB disk space will be freed.
+E: Sub-process /usr/local/sbin/pve-zfsnvme-upgrade-guard returned an error code (1)
+E: Failure running script /usr/local/sbin/pve-zfsnvme-upgrade-guard

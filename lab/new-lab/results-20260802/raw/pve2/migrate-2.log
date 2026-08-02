@@ -1,0 +1,6 @@
+2026-08-02 00:44:34 conntrack state migration not supported or disabled, active connections might get dropped
+2026-08-02 00:44:34 # /usr/bin/ssh -e none -o 'BatchMode=yes' -o 'HostKeyAlias=pvenvme1' -o 'UserKnownHostsFile=/etc/pve/nodes/pvenvme1/ssh_known_hosts' -o 'GlobalKnownHostsFile=none' root@fe80::be24:11ff:fec0:f8e6 /bin/true
+2026-08-02 00:44:34 ssh: connect to host fe80::be24:11ff:fec0:f8e6 port 22: Invalid argument
+2026-08-02 00:44:34 ERROR: migration aborted (duration 00:00:00): Can't connect to destination address using public key
+migration aborted
+migration_rc=255 elapsed_ms=711

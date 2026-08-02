@@ -1,0 +1,7 @@
+2026-08-02 00:42:56 conntrack state migration not supported or disabled, active connections might get dropped
+2026-08-02 00:42:56 starting migration of VM 920 to node 'pvenvme2' (192.168.34.243)
+2026-08-02 00:42:56 starting VM 920 on remote node 'pvenvme2'
+2026-08-02 00:42:59 start remote tunnel
+2026-08-02 00:43:00 ssh tunnel ver 1
+2026-08-02 00:43:00 starting online/live migration on unix:/run/qemu-server/920.migrate
+2026-08-02 00:43:00 set migration capabilities

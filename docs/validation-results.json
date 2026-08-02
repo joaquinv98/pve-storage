@@ -1,469 +1,255 @@
 {
-  "schema_version": 2,
-  "generated_at": "2026-07-15T10:46:40-03:00",
+  "schema_version": 3,
+  "generated_at": "2026-08-02T02:01:00Z",
   "language": "es-AR",
   "project": {
     "name": "Native ZFS over NVMe/TCP for Proxmox VE",
     "storage_type": "zfsnvme",
     "status": "lab-qualified-release-candidate",
     "production_certified": false,
-    "certification_note": "La virtualizacion anidada no reemplaza la calificacion sobre NICs, switches, firmware, kernel, fencing y carga de produccion."
+    "certification_note": "La calificacion anidada demuestra funcionalidad e integridad del diseño, pero no sustituye una campaña sobre NICs, switches, firmware, carga y fencing de la plataforma productiva."
   },
   "source": {
-    "branch": "feature/zfs-nvme-tcp",
-    "publication_state": "published to feature/zfs-nvme-tcp",
-    "backend": {
-      "repository": "https://github.com/joaquinv98/pve-storage",
-      "published_base": "6323932a0e3c51b590b655289c849d6b4b24c953",
-      "validated_commit": "c33fe9c778948cc7d6076114ffd55f5ce23243ce"
+    "submission_identity": "Joaquin Varela <joaquinvarela@neatech.ar>",
+    "upstream_fetched_at": "2026-08-02",
+    "repositories": {
+      "pve-storage": {
+        "upstream_head": "0c56bad",
+        "feature_head": "b693d9d",
+        "behind_upstream": 0,
+        "commits_ahead": 7
+      },
+      "pve-manager": {
+        "upstream_head": "3e77299a",
+        "feature_head": "9a9cea44",
+        "behind_upstream": 0,
+        "commits_ahead": 3
+      },
+      "pve-docs": {
+        "upstream_head": "100c85f",
+        "feature_head": "6cbb96d",
+        "behind_upstream": 0,
+        "commits_ahead": 5
+      }
     },
-    "manager": {
-      "repository": "https://github.com/joaquinv98/pve-manager",
-      "published_base": "80489e3eeeab4fe4706db597c7bd6cc29f633e2c",
-      "validated_commit": "272ae6953ac4d826bf1d29ae5a8b3465adedae96"
-    },
-    "documentation": {
-      "repository": "https://github.com/joaquinv98/pve-docs",
-      "published_base": "b85ccde06dddcdffa3bb7be124a23348144e9b50",
-      "validated_commit": "6aaeed63bbdd216200067176f44f65ce79171f92"
-    }
+    "reviewer_requests_applied": [
+      "use v5.36 in new Perl modules",
+      "regex constants with n/x modifiers and named captures",
+      "private lexical helpers where compatible with testability",
+      "postfix dereferencing",
+      "no debian/changelog entries in the submitted series"
+    ]
   },
   "packages": {
     "libpve-storage-perl": {
-      "version": "9.1.6+neatech4",
-      "sha256": "26a56dab4ea7613f3d09dcf10353407ad966cb8fa3e25d9bb9cc0d9a41f02711"
+      "version": "9.1.7",
+      "sha256": "5dbdb3c99a9bc4a44fcb2b6a031854f3b0eac4c569f6dbb06ad8f19e8a30228c"
     },
     "pve-manager": {
-      "version": "9.2.4+neatech4",
-      "sha256": "4ed648517846d1fa3bba0629466ce351ae1f130bebb85179fa46f123e1ff0a5d",
-      "entrypoint_shebangs_checked": 35,
-      "crlf_shebangs": 0,
-      "build_source": "canonical git archive"
+      "version": "9.2.6",
+      "sha256": "ee98e0c51cc6c0865c4db948133948d4aa102d3317fca71ffab1829614e9990a"
     },
     "pve-docs": {
-      "version": "9.2.3+neatech5",
-      "sha256": "05b8d7b682b9adf28e99c386aea6e950813e1caf5777949c1d013f5345e9487d"
+      "version": "9.2.3",
+      "sha256": "cf78795f4d537f5df545d5df49a715941baa353380c615407730c3ae6fbfd926"
     },
     "pve-doc-generator": {
-      "version": "9.2.3+neatech5",
-      "sha256": "aa217bb92ee07c78aa1505c494f128ef342ccaf4e465223c9c08fd0c7ca1c792"
+      "version": "9.2.3",
+      "sha256": "46514ef9050cacf68f24fe943677bff58c05d92891804ea0ee19e7f940b2ac55"
     },
-    "installed_identically_on_both_nodes": true
-  },
-  "architecture": {
-    "control_plane": "ZFS y nvmet administrados por SSH desde cada nodo PVE",
-    "data_plane": "NVMe/TCP sobre dos redes aisladas con multipath nativo del kernel",
-    "durable_source_of_truth": "propiedades de usuario ZFS",
-    "stable_guest_path": "/dev/disk/by-id/nvme-uuid.<uuid>",
-    "target_api": "Linux nvmet configfs",
-    "target_lock": "/run/lock/pve-nvmet.lock",
-    "target_lock_execution_host": "servidor target comun, mediante helper remoto SSH",
-    "target_lock_cluster_wide_for_this_storage": true,
-    "multipath_policy": "round-robin",
-    "ana_normal_topology": "dos paths optimized",
-    "authentication": "DH-HMAC-CHAP por Host NQN",
-    "payload_encryption": false,
-    "tls_implemented": false,
-    "all_path_loss_policy": {
-      "default": "queue until nvme-ctrl-loss-tmo",
-      "default_ctrl_loss_tmo_seconds": 600,
-      "optional_fast_fail_property": "nvme-fast-io-fail-tmo",
-      "policy_is_workload_decision": true
+    "pve-docs-mediawiki": {
+      "version": "9.2.3",
+      "sha256": "1ba23e5db34a6f782b1676a5be47d66f5351bf182224701d0eb921103c5a5c96"
     }
   },
   "lab": {
-    "storage": {
-      "hostname": "kbuild01",
-      "management_ip": "192.168.34.11",
-      "kernel": "6.8.0-134-generic",
+    "nested": true,
+    "outer_node": "hvarres02",
+    "virtual_machines": {
+      "target": { "vmid": 9401, "memory_mib": 2048, "management_ip": "192.168.34.241" },
+      "pve_node_1": { "vmid": 9402, "memory_mib": 4096, "management_ip": "192.168.34.242" },
+      "pve_node_2": { "vmid": 9403, "memory_mib": 4096, "management_ip": "192.168.34.243" }
+    },
+    "target": {
+      "hostname": "zfsnvme-target",
+      "kernel": "6.8.0-136-generic",
       "zfs": "2.2.2-0ubuntu9.4",
       "nvme_cli": "2.8",
       "pool": "tank",
-      "pool_size_gib": 23.5,
       "pool_health": "ONLINE",
-      "dataset": "tank/pve-nvme",
-      "subsystem_nqn": "nqn.2026-07.ar.neatech:pve-zfsnvme-test",
-      "portals": [
-        {
-          "path": "A",
-          "interface": "ens20",
-          "address": "10.90.1.11",
-          "port": 4421
-        },
-        {
-          "path": "B",
-          "interface": "ens21",
-          "address": "10.90.2.11",
-          "port": 4421
-        }
-      ]
+      "portals": ["10.90.1.11:4420", "10.90.2.11:4420"],
+      "cloud_init_disabled": true
     },
-    "initiators": [
-      {
-        "hostname": "pvenest01",
-        "management_ip": "192.168.34.14",
-        "kernel": "7.0.14-4-pve",
-        "nvme_cli": "2.13",
-        "libnvme": "1.13",
-        "hostnqn": "nqn.2014-08.org.nvmexpress:uuid:c61bd1f1-912b-4d8c-afdc-019836026f30",
-        "paths": [
-          {
-            "interface": "ens20",
-            "source_ip": "10.90.1.14",
-            "state_at_close": "live"
-          },
-          {
-            "interface": "ens21",
-            "source_ip": "10.90.2.14",
-            "state_at_close": "live"
-          }
-        ]
-      },
-      {
-        "hostname": "pvenest02",
-        "management_ip": "192.168.34.16",
-        "kernel": "7.0.14-4-pve",
-        "nvme_cli": "2.13",
-        "libnvme": "1.13",
-        "hostnqn": "nqn.2014-08.org.nvmexpress:uuid:d66004d7-867e-49a4-a1da-31be9d4f8ed6",
-        "paths": [
-          {
-            "interface": "ens20",
-            "source_ip": "10.90.1.16",
-            "state_at_close": "live"
-          },
-          {
-            "interface": "ens21",
-            "source_ip": "10.90.2.16",
-            "state_at_close": "live"
-          }
-        ]
-      }
-    ],
-    "quorum": {
-      "quorate": true,
-      "expected_votes": 3,
-      "total_votes": 3,
+    "initiators": {
+      "kernel": "7.0.14-8-pve",
+      "proxmox_ve": "9.2.0",
+      "pve_manager": "9.2.6",
+      "nvme_cli": "2.13",
+      "zfs": "2.4.3-pve1",
+      "paths_per_node": 2,
+      "multipath_policy": "round-robin"
+    },
+    "cluster": {
+      "nodes": 2,
       "qdevice": true,
-      "watchdog_fencing_armed": true
+      "quorate": true,
+      "watchdog_fencing": true
+    },
+    "guest": {
+      "vmid": 920,
+      "os": "Debian 13 genericcloud",
+      "address": "172.31.50.20",
+      "disk_driver": "QEMU host_device over stable nvme-uuid path"
     }
   },
-  "automated_tests": {
+  "build_and_unit_tests": {
     "result": "PASS",
-    "assertions_total": 593,
-    "api_verification": "PASS",
-    "suites": [
-      {
-        "name": "disk",
-        "assertions": 7,
-        "result": "PASS"
-      },
-      {
-        "name": "bandwidth-limit",
-        "assertions": 91,
-        "result": "PASS"
-      },
-      {
-        "name": "plugins",
-        "assertions": 203,
-        "result": "PASS"
-      },
-      {
-        "name": "OVF",
-        "assertions": 35,
-        "result": "PASS"
-      },
-      {
-        "name": "volume-access",
-        "assertions": 183,
-        "result": "PASS"
-      },
-      {
-        "name": "Ceph-parser",
-        "assertions": 74,
-        "result": "PASS"
-      }
-    ],
-    "root_only_harness_tests": {
-      "zfs": "SKIPPED_IN_NON_ROOT_RUNNER",
-      "lvm": "SKIPPED_IN_NON_ROOT_RUNNER",
-      "coverage_note": "La integracion ZFS real se valido directamente contra tank/pve-nvme."
-    }
+    "pve_storage_full_suite": "PASS",
+    "zfsnvme_assertions": 46,
+    "pve_manager_make_check": "PASS",
+    "pve_manager_biome_files_checked": 376,
+    "pve_docs_package_build": "PASS",
+    "lintian": "PASS with only pre-existing documentation warnings"
   },
   "functional_tests": [
-    {
-      "name": "thin-allocation-discard-snapshot-rollback-clone-resize",
-      "result": "PASS"
-    },
-    {
-      "name": "online-resize-safe-rejection",
-      "result": "PASS"
-    },
-    {
-      "name": "configfs-reconcile-from-zfs-properties",
-      "result": "PASS"
-    },
-    {
-      "name": "foreign-zvol-rejection",
-      "result": "PASS"
-    },
-    {
-      "name": "live-migration-bidirectional-under-io",
-      "result": "PASS"
-    },
-    {
-      "name": "live-migration-to-single-path-destination",
-      "result": "PASS"
-    },
-    {
-      "name": "parallel-cluster-allocation",
-      "result": "PASS",
-      "initiators": [
-        "pvenest01",
-        "pvenest02"
-      ],
-      "vmids": [
-        9301,
-        9302
-      ],
-      "assigned_nsids": [
-        3,
-        2
-      ],
-      "unique_nsids": true,
-      "unique_uuids": true,
-      "zfs_configfs_identity_match": true,
-      "scratch_resources_purged": true
-    },
-    {
-      "name": "real-ana-state-transitions-under-io",
-      "result": "PASS",
-      "path_a_states": [
-        "optimized",
-        "non-optimized",
-        "inaccessible",
-        "optimized"
-      ],
-      "path_b_state": "optimized",
-      "write_bytes": 7229800448,
-      "throughput_bytes_per_second": 206536221,
-      "iops": 3151.49,
-      "latency_p99_ns": 19791872,
-      "block_errors": 0,
-      "short_io": 0,
-      "scratch_resource_purged": true
-    }
+    { "name": "thin provisioning and UNMAP", "result": "PASS", "initial_bytes": 57344, "after_write_bytes": 1073741824, "after_discard_bytes": 57344 },
+    { "name": "snapshot rollback checksum", "result": "PASS" },
+    { "name": "template linked clone and full clone", "result": "PASS", "write_isolation": true },
+    { "name": "offline resize 4GiB to 5GiB", "result": "PASS", "propagated_to_both_nodes": true },
+    { "name": "online resize safe rejection", "result": "PASS", "backend_unchanged": true },
+    { "name": "parallel cluster allocations", "result": "PASS", "attempts": 16, "initial_successes": 15, "lock_timeout_retried": 1, "unique_nsids": 19, "unique_uuids": 19, "residual_scratch_namespaces": 0 },
+    { "name": "foreign zvol ownership rejection", "result": "PASS", "foreign_nsid": 99, "listed_by_pvesm": false, "exposed_in_configfs": false },
+    { "name": "real ANA optimized to non-optimized transition", "result": "PASS", "io_operations": 370259, "write_bytes": 1516580864, "fio_error": 0, "short_io": 0 },
+    { "name": "target configfs reconstruction", "result": "PASS", "namespaces": 6, "host_acls": 2, "published_portals": 2 },
+    { "name": "guest verified I/O after target reboot", "result": "PASS", "iterations_before": 8, "iterations_after": 82, "sha256": "PASS" }
   ],
-  "fault_injection": [
-    {
-      "name": "single-data-path-loss",
-      "result": "PASS",
-      "block_errors": 0,
-      "io_resumed": true
+  "target_reboot_investigation": {
+    "first_attempt": {
+      "result": "FAIL",
+      "cause": "cloud-init on the target consumed the guest cloud-init ZVOL labelled cidata and replaced hostname/SSH host keys",
+      "data_corruption_observed": false,
+      "mitigation": "disable cloud-init discovery on the dedicated target after provisioning and persist nvmet_tcp plus the ZFS pool cache"
     },
-    {
-      "name": "both-data-paths-loss-temporary-default-queue-policy",
-      "duration_seconds": 15,
-      "result": "PASS",
-      "behavior": "backpressure sin block errors; reanudacion y checksum valido",
-      "qualification_boundary": "No prueba una perdida permanente. Con fast-fail off y ctrl-loss 600, I/O puede quedar en cola hasta 600 segundos."
+    "second_attempt_before_code_fix": {
+      "result": "FAIL",
+      "cause": "the target linked NVMe/TCP ports before restoring every cluster Host NQN ACL",
+      "kernel_event": "Connect for subsystem is not allowed",
+      "controllers_removed": 2,
+      "qemu_state": "io-error",
+      "qemu_failed_writes": 6,
+      "guest_recovery": "offline e2fsck repaired the journal and allocation bitmap; a second read-only pass was clean",
+      "pre_repair_snapshot": "tank/vm-920-disk-0@pre-fsck-20260802",
+      "snapshot_removed_after_evidence_capture": true
     },
-    {
-      "name": "both-data-paths-loss-configured-fast-fail",
+    "final_attempt_after_code_fix": {
       "result": "PASS",
-      "configured_fast_io_fail_tmo_seconds": 5,
-      "configured_ctrl_loss_tmo_seconds": 600,
-      "fio_return_code": 1,
-      "fio_error": 5,
-      "expected_error": "EIO",
-      "cut_to_fio_exit_seconds": 13.833,
-      "write_bytes_before_error": 1525104640,
-      "paths_recovered_live": 2,
-      "policy_restored_to_default_off": true,
-      "scratch_resource_purged": true
+      "ping_down_up_cycle_seconds": 18.3,
+      "controller_reconnect_attempt": 4,
+      "connect_not_allowed_events": 0,
+      "controller_removals": 0,
+      "failed_block_io": 0,
+      "qemu_state": "running",
+      "guest_sha256": "PASS"
     },
-    {
-      "name": "wrong-host-interface",
-      "result": "PASS",
-      "behavior": "reemplazo de controllers de a un path"
-    },
-    {
-      "name": "target-configfs-loss",
-      "result": "PASS",
-      "behavior": "reconstruccion desde propiedades ZFS"
-    },
-    {
-      "name": "management-ssh-loss",
-      "result": "PASS",
-      "status_failure_latency_ms": 2012,
-      "data_paths_remained_live": true,
-      "allocation_failed_cleanly": true,
-      "residual_zvols": 0
-    },
-    {
-      "name": "deactivate-while-qemu-open",
-      "result": "PASS",
-      "behavior": "desconexion rechazada"
-    },
-    {
-      "name": "delete-storage-with-owned-volume",
-      "result": "PASS",
-      "behavior": "remocion cluster-wide rechazada"
+    "code_fix": {
+      "feature": "nvme-host-nqns cluster allow-list",
+      "publication_order": ["prepare subsystem and ports", "restore all Host NQNs and DHCHAP keys", "reconcile namespaces", "publish port links"],
+      "commit": "b693d9d"
     }
-  ],
-  "ha": {
-    "overall_result": "PASS",
-    "rto_sla_qualified": false,
-    "tests": [
-      {
-        "name": "node-loss-watchdog-fence",
-        "result": "PASS",
-        "test_vmid": 9210,
-        "recovery_seconds": 245,
-        "rto_interpretation": "Recuperacion correcta, pero cuatro minutos requieren aceptacion explicita de SLA o tuning y revalidacion.",
-        "qdevice_quorum_preserved": true,
-        "watchdog_self_fence": true,
-        "same_namespace_uuid": true,
-        "paths_live_after_recovery": 2,
-        "failed_block_operations": 0,
-        "dual_writer_observed": false,
-        "scratch_resource_purged": true
-      },
-      {
-        "name": "live-corosync-and-qdevice-partition-with-data-paths-live",
-        "result": "PASS",
-        "test_vmid": 9211,
-        "partition_epoch": 1784121138.3168144,
-        "source_last_qemu_epoch": 1784121189.6509376,
-        "survivor_first_qemu_epoch": 1784121268.8958738,
-        "recovery_from_partition_seconds": 130.579,
-        "writer_gap_seconds": 79.245,
-        "qemu_sampling_interval_seconds": 0.2,
-        "source_and_survivor_powered_during_partition": true,
-        "both_nvme_paths_left_available_to_isolated_source": true,
-        "isolated_node_lost_quorum": true,
-        "watchdog_self_fence": true,
-        "same_namespace_uuid": true,
-        "namespace_uuid": "9e36d361-2dd0-4b3d-a426-c4bf8caa8967",
-        "dual_writer_observed": false,
-        "scratch_resource_purged": true
-      }
-    ]
   },
+  "fault_injection": [
+    { "name": "path A loss for 12 seconds", "result": "PASS", "fio_error": 0 },
+    { "name": "path B loss for 12 seconds", "result": "PASS", "fio_error": 0 },
+    { "name": "both paths loss for 15 seconds with queue policy", "result": "PASS", "fio_error": 0, "checksum": "PASS" },
+    { "name": "both paths long loss with fail-fast policy", "result": "PASS", "expected_errno": "EIO", "recovered_paths": 2, "post_recovery_checksum": "PASS" },
+    { "name": "migration destination with one degraded path", "result": "PASS" }
+  ],
   "performance": {
     "tool": "fio",
-    "primary_scaling_sample": {
-      "ioengine": "io_uring",
-      "operation": "write",
-      "direct": true,
-      "block_size_kib": 128,
-      "iodepth": 32,
-      "jobs": 4,
-      "runtime_seconds": 20,
-      "ramp_seconds": 3,
-      "shaping_per_interface_mbit_s": 100,
-      "samples": [
-        {
-          "scenario": "path-a-100m",
-          "paths": 1,
-          "throughput_mb_s": 11.94,
-          "iops": 85.3
-        },
-        {
-          "scenario": "path-b-100m",
-          "paths": 1,
-          "throughput_mb_s": 11.94,
-          "iops": 85.3
-        },
-        {
-          "scenario": "multipath-2x100m",
-          "paths": 2,
-          "throughput_mb_s": 23.89,
-          "iops": 176.3
-        },
-        {
-          "scenario": "multipath-unshaped",
-          "paths": 2,
-          "throughput_mb_s": 131.96,
-          "iops": 1000.7
-        }
-      ],
-      "shaped_two_path_scaling_ratio": 2.0,
-      "interpretation": "Valida uso y scaling de ambos paths en el lab; no es sizing de hardware."
+    "shaping_mbit_per_path": 100,
+    "samples": [
+      { "scenario": "single path A", "throughput_mb_s": 11.94, "iops": 83.53 },
+      { "scenario": "single path B", "throughput_mb_s": 11.99, "iops": 83.98 },
+      { "scenario": "two paths", "throughput_mb_s": 23.87, "iops": 174.25 },
+      { "scenario": "two paths unshaped", "throughput_mb_s": 91.47, "iops": 691.23 }
+    ],
+    "two_path_scaling_ratio_vs_path_a": 1.999,
+    "interpretation": "Valida que ambos caminos transportan I/O y escalan casi linealmente bajo shaping; no es sizing de hardware real."
+  },
+  "live_migration": [
+    { "direction": "pvenvme1 to pvenvme2", "result": "PASS", "downtime_ms": 69, "total_ms": 7775, "state_mib": 412.9 },
+    { "direction": "pvenvme2 to pvenvme1", "result": "PASS", "downtime_ms": 124, "total_ms": 8375, "state_mib": 417.8 },
+    { "direction": "pvenvme1 to pvenvme2 with destination single-path", "result": "PASS", "downtime_ms": 645, "total_ms": 9645, "state_mib": 446.0 }
+  ],
+  "ha": {
+    "node_power_loss": {
+      "result": "PASS",
+      "unknown_seconds": 15,
+      "fence_started_seconds": 65,
+      "fence_ack_seconds": 135,
+      "qemu_restarted_seconds": 143,
+      "guest_ping_seconds": 151,
+      "premature_writer_start": false
+    },
+    "live_corosync_partition": {
+      "result": "PASS",
+      "source_watchdog_reboot_seconds": 59,
+      "last_source_writer_epoch": 1785632199.89102,
+      "first_survivor_writer_epoch": 1785632291.04184,
+      "writer_gap_seconds": 91.1508226,
+      "sampling_interval_ms": 200,
+      "dual_writer_observed": false
     }
   },
   "upgrade_safety": {
+    "official_sources_current": true,
+    "repository_commits_behind": 0,
+    "target_outdated_packages": 0,
+    "apt_equal_version_overwrite_detected": true,
     "permanent_package_hold": false,
-    "apt_transaction_guard_installed": true,
-    "guard_behavior": "bloquea backend o UI candidatos sin soporte zfsnvme cuando el storage esta configurado",
-    "official_feature_detection": "por contenido de paquete",
-    "package_source_mode": "git archive con LF y modos canonicos",
-    "package_entrypoint_gate": "todos los shebangs del .deb deben terminar en LF",
-    "recommended_distribution": "APT privado firmado y rolling upgrade",
-    "durable_resolution": "merge upstream en pve-storage, pve-manager y pve-docs"
+    "transaction_guard_installed_on_both_nodes": true,
+    "guard_checks": ["backend registration", "nvme-host-nqns", "publish-after-ACL", "matching web UI", "operator documentation"],
+    "custom_candidate_set": "ACCEPTED",
+    "official_candidate_set": "REJECTED",
+    "real_apt_transaction_exit_code": 100,
+    "files_changed_before_rejection": false,
+    "durable_solution": "acceptance upstream in pve-storage, pve-manager and pve-docs"
   },
-  "current_limitations": [
-    "resize online no soportado",
-    "los nombres de las interfaces de datos deben ser consistentes entre nodos",
-    "las mutaciones y el capacity status dependen del endpoint SSH de management",
-    "DH-HMAC-CHAP no cifra payload; TLS NVMe/TCP no esta implementado",
-    "el default de perdida total prioriza queue y puede pausar I/O hasta 600 segundos; fast-fail debe configurarse por workload",
-    "la calificacion actual usa Proxmox anidado y no hardware de produccion",
-    "la serie todavia no fue aceptada upstream"
-  ],
-  "production_qualification_remaining": [
-    "soak mixto de al menos 72 horas sobre hardware real",
-    "latencias p50 p95 p99 p99.9 y RTO bajo carga",
-    "aceptacion explicita del RTO HA y de la politica queue-versus-fail por workload",
-    "fallas de NIC cable switch VLAN y portal fisicos",
-    "reboots de target e initiators",
-    "pool casi lleno y lleno",
-    "restore real de backup y validacion RPO/RTO",
-    "rolling upgrade con paquetes candidatos exactos",
-    "decision de seguridad sobre TLS o aislamiento",
-    "repositorio APT privado firmado",
-    "RFC, CLA y review en pve-devel"
-  ],
-  "upstream_submission": {
-    "github_mirrors_accept_pull_requests": false,
-    "canonical_channel": "pve-devel@lists.proxmox.com",
-    "format": "git send-email patch series",
-    "harmony_cla_required": true,
-    "cla_status": "official individual and entity forms downloaded; applicable agreement not yet selected or submitted",
-    "submission_identity": "Joaquin Varela <joaquinvarela@neatech.ar>",
-    "patch_series_prepared": true,
-    "patch_series_signed": true,
-    "patch_series_apply_check": "PASS",
-    "signed_series": {
-      "pve-storage_commits": 4,
-      "pve-manager_commits": 2,
-      "pve-docs_commits": 3,
-      "applied_trees_match_submission_branches": true
-    },
-    "ready_to_send": false,
-    "send_blockers": [
-      "seleccionar y enviar el acuerdo individual o de entidad aplicable",
-      "configurar SMTP/git send-email"
-    ]
+  "soak": {
+    "result": "PASS",
+    "started_at": "2026-08-02T01:53:20Z",
+    "completed_at": "2026-08-02T02:05:41Z",
+    "duration_seconds": 741,
+    "verified_iterations": 681,
+    "bytes_per_iteration": 67108864,
+    "total_verified_bytes": 45701136384,
+    "sha256": "PASS",
+    "qemu_state": "running",
+    "live_paths": 2,
+    "kernel_block_or_ext4_errors": 0
   },
-  "state_at_close": {
-    "storage_active_on_both_nodes": true,
+  "state_at_report": {
+    "storage_active_both_nodes": true,
     "live_paths_per_node": 2,
-    "fast_io_fail_tmo_after_test": "off",
-    "pool_health": "ONLINE",
-    "cluster_quorate": true,
+    "target_pool_health": "ONLINE",
     "qdevice_active": true,
+    "cluster_quorate": true,
     "fencing_armed": true,
-    "control_vm_8888_running": true,
-    "scratch_vmids_present": [],
-    "target_namespaces": 1,
-    "target_host_acls": 2,
-    "remaining_volume": {
-      "name": "tank/pve-nvme/base-9200-disk-0",
-      "volsize_gib": 8,
-      "used_mib": 34.2,
-      "nsid": 1,
-      "uuid": "3beaff16-0631-4451-aa3f-6e4e7bd9991f"
-    }
-  }
+    "guest_vmid_920": "running",
+    "upgrade_guard_active": true,
+    "owned_namespaces_after_cleanup": 2,
+    "scratch_vmids_after_cleanup": [],
+    "scratch_zvols_after_cleanup": []
+  },
+  "production_qualification_remaining": [
+    "72-hour or longer mixed-I/O soak on the exact production hardware",
+    "latency p50/p95/p99/p99.9 and RTO acceptance under representative load",
+    "physical NIC, cable, switch, VLAN and portal failure injection",
+    "near-full and full-pool behavior",
+    "backup plus full restore and measured RPO/RTO",
+    "rolling upgrade with the exact candidate packages on drained nodes",
+    "security decision for NVMe/TCP TLS versus physically isolated networks",
+    "upstream review and acceptance"
+  ],
+  "raw_results": "lab/new-lab/results-20260802/raw"
 }

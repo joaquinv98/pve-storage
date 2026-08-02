@@ -1,0 +1,12 @@
+network:
+  version: 2
+  ethernets:
+    enp6s19:
+      addresses:
+        - 10.90.1.11/24
+    enp6s20:
+      addresses:
+        - 10.90.2.11/24
+    enp6s21:
+      addresses:
+        - 172.31.50.3/24

@@ -1,0 +1,19 @@
+network:
+  version: 2
+  ethernets:
+    ens19:
+      addresses:
+        - 10.90.1.14/24
+    ens20:
+      addresses:
+        - 10.90.2.14/24
+    ens21: {}
+  bridges:
+    vmbr50:
+      interfaces:
+        - ens21
+      addresses:
+        - 172.31.50.1/24
+      parameters:
+        stp: false
+        forward-delay: 0

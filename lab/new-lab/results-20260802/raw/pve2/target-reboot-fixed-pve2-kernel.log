@@ -1,0 +1,38 @@
+Aug 02 01:44:14 pvenvme2 kernel: nvme nvme1: I/O tag 0 (f000) type 4 opcode 0x18 (Admin Cmd) QID 0 timeout
+Aug 02 01:44:14 pvenvme2 kernel: nvme nvme1: starting error recovery in 1 seconds
+Aug 02 01:44:15 pvenvme2 kernel: nvme nvme1: long keepalive RTT (1281 ms)
+Aug 02 01:44:15 pvenvme2 kernel: nvme nvme1: failed nvme_keep_alive_end_io error=10
+Aug 02 01:44:15 pvenvme2 kernel: nvme nvme1: Reconnecting in 2 seconds...
+Aug 02 01:44:15 pvenvme2 kernel: nvme nvme0: I/O tag 0 (f000) type 4 opcode 0x18 (Admin Cmd) QID 0 timeout
+Aug 02 01:44:15 pvenvme2 kernel: nvme nvme0: starting error recovery in 1 seconds
+Aug 02 01:44:16 pvenvme2 kernel: nvme nvme0: long keepalive RTT (1281 ms)
+Aug 02 01:44:16 pvenvme2 kernel: nvme nvme0: failed nvme_keep_alive_end_io error=10
+Aug 02 01:44:16 pvenvme2 kernel: nvme nvme0: Reconnecting in 2 seconds...
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme1: failed to connect socket: -110
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme1: Failed reconnect attempt 1/300
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme1: Reconnecting in 2 seconds...
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme0: failed to connect socket: -111
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme0: Failed reconnect attempt 1/300
+Aug 02 01:44:20 pvenvme2 kernel: nvme nvme0: Reconnecting in 2 seconds...
+Aug 02 01:44:22 pvenvme2 kernel: nvme nvme1: failed to connect socket: -111
+Aug 02 01:44:22 pvenvme2 kernel: nvme nvme1: Failed reconnect attempt 2/300
+Aug 02 01:44:22 pvenvme2 kernel: nvme nvme1: Reconnecting in 2 seconds...
+Aug 02 01:44:23 pvenvme2 kernel: nvme nvme0: failed to connect socket: -111
+Aug 02 01:44:23 pvenvme2 kernel: nvme nvme0: Failed reconnect attempt 2/300
+Aug 02 01:44:23 pvenvme2 kernel: nvme nvme0: Reconnecting in 2 seconds...
+Aug 02 01:44:24 pvenvme2 kernel: nvme nvme1: failed to connect socket: -111
+Aug 02 01:44:24 pvenvme2 kernel: nvme nvme1: Failed reconnect attempt 3/300
+Aug 02 01:44:24 pvenvme2 kernel: nvme nvme1: Reconnecting in 2 seconds...
+Aug 02 01:44:25 pvenvme2 kernel: nvme nvme0: failed to connect socket: -111
+Aug 02 01:44:25 pvenvme2 kernel: nvme nvme0: Failed reconnect attempt 3/300
+Aug 02 01:44:25 pvenvme2 kernel: nvme nvme0: Reconnecting in 2 seconds...
+Aug 02 01:44:26 pvenvme2 kernel: nvme nvme1: qid 0: authenticated with hash hmac(sha256) dhgroup null
+Aug 02 01:44:26 pvenvme2 kernel: nvme nvme1: qid 0: authenticated
+Aug 02 01:44:26 pvenvme2 kernel: nvme nvme1: creating 2 I/O queues.
+Aug 02 01:44:26 pvenvme2 kernel: nvme nvme1: mapped 2/0/0 default/read/poll queues.
+Aug 02 01:44:26 pvenvme2 kernel: nvme nvme1: Successfully reconnected (attempt 4/300)
+Aug 02 01:44:27 pvenvme2 kernel: nvme nvme0: qid 0: authenticated with hash hmac(sha256) dhgroup null
+Aug 02 01:44:27 pvenvme2 kernel: nvme nvme0: qid 0: authenticated
+Aug 02 01:44:27 pvenvme2 kernel: nvme nvme0: creating 2 I/O queues.
+Aug 02 01:44:27 pvenvme2 kernel: nvme nvme0: mapped 2/0/0 default/read/poll queues.
+Aug 02 01:44:27 pvenvme2 kernel: nvme nvme0: Successfully reconnected (attempt 4/300)

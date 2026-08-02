@@ -1,76 +1,111 @@
 # Validation record
 
-Lab topology: two nested Proxmox VE 9.2 nodes, one Linux/OpenZFS storage server,
-two isolated NVMe/TCP networks, one portal per network, DH-HMAC-CHAP, and Linux
-native NVMe multipath. The older iSCSI storage remained online as a regression
-control.
+Cut-off: 2026-08-02. The canonical structured record is
+[`validation-results.json`](validation-results.json); the detailed reasoning is
+in [`ENGINEERING-REPORT-20260802.es.md`](ENGINEERING-REPORT-20260802.es.md).
 
-## Functional and safety coverage
+## Environment
 
-- Full `pve-storage` build and upstream tests: API verification, 203 plugin
-  tests, 91 bandwidth-limit tests, 35 OVF tests, 183 access tests, and 74 Ceph
-  parser tests passed.
-- Thin allocation, discard reclamation, snapshot, rollback with exact checksum
-  restoration, template conversion, linked clone, clone deletion, online
-  snapshot, and offline resize passed.
-- A zvol owned by the older iSCSI target was rejected and left unchanged.
-- Target configfs loss was reconciled from durable ZFS identity properties.
-- Controllers connected without the configured data interface were replaced
-  one at a time without taking the storage offline.
-- Simultaneous allocations issued by both PVE nodes received distinct NSIDs
-  and UUIDs. The NSID allocator's `flock` runs on the common target host, not
-  on the initiators, so it serializes the cluster-wide ZFS/configfs mutation.
-- A live namespace was driven through real target ANA transitions
-  `optimized -> non-optimized -> inaccessible -> optimized` on path A while
-  path B remained optimized. `fio` wrote 7.23 GB with zero errors or short I/O.
-- Live migration succeeded in both directions under guest I/O. The reverse
-  migration also succeeded with one destination path degraded.
-- A real HA node-loss test used QDevice quorum and watchdog self-fencing. The
-  surviving node waited for fencing, activated the namespace by its unchanged
-  UUID, and restarted the guest with both paths live and no failed block
-  operations. End-to-end recovery took 245 seconds with the lab's default HA
-  timers. This is recovery evidence, not an accepted RTO: 245 seconds needs an
-  explicit workload/SLA decision.
-- A separate live split-brain test isolated Corosync and QDevice from one node
-  while leaving both NVMe/TCP paths and both PVE nodes powered. The isolated
-  node lost quorum and self-fenced. QEMU was sampled every 200 ms on both
-  nodes; the survivor did not start the guest until 79.245 seconds after the
-  last source QEMU observation, with the same namespace UUID and no overlap.
-- Blocking only the SSH management path left both NVMe/TCP controllers live and
-  caused a test allocation to fail without creating a residual zvol. Capacity
-  status was intentionally reported inactive until management connectivity
-  returned; existing guest I/O remained on the independent data paths.
-- A single-path loss kept guest I/O progressing. A 15-second loss of both paths
-  produced backpressure without block errors; I/O resumed and checksum
-  verification passed after connectivity returned. With the default
-  `ctrl_loss_tmo=600` and no fast-fail value, a permanent loss may queue I/O
-  for up to ten minutes; this is a policy trade-off, not a universal virtue.
-- The new optional `nvme-fast-io-fail-tmo` policy was then set to 5 seconds on
-  both controllers. Under a permanent dual-path blackhole, `fio` received the
-  expected `EIO` and exited 13.833 seconds after injection (keep-alive/failure
-  detection plus fast-fail), rather than waiting for the 600-second controller
-  loss timeout. Both paths recovered live and the scratch volume was removed.
+- Two-node nested Proxmox VE 9.2 cluster with QDevice and watchdog fencing.
+- PVE kernel 7.0.14-8-pve, `nvme-cli` 2.13, native NVMe multipath.
+- Ubuntu target kernel 6.8.0-136, OpenZFS 2.2.2 and `nvme-cli` 2.8.
+- Two isolated NVMe/TCP networks and a separate guest network.
+- Real Debian 13 guest, VMID 920, booting from the shared NVMe namespace.
+- DH-HMAC-CHAP and a complete two-node `nvme-host-nqns` allow-list.
 
-## Performance sample
+## Build gates
 
-Each data interface was shaped to 100 Mbit/s for an apples-to-apples write
-test:
+- Current upstream fetched for all three repositories; every feature branch is
+  zero commits behind its corresponding official `master`.
+- Full `pve-storage` test/build and package lint passed.
+- 46 focused `zfsnvme` assertions passed.
+- `pve-manager make check`, including Biome over 376 files, passed.
+- `pve-docs`, `pve-doc-generator`, and mediawiki packages built and linted.
 
-| Paths | Throughput | IOPS |
-| --- | ---: | ---: |
-| Path A | 11.94 MB/s | 85.3 |
-| Path B | 11.94 MB/s | 85.3 |
-| A + B | 23.89 MB/s | 176.3 |
-| A + B, unshaped | 131.96 MB/s | 1000.7 |
+## Functional and integrity gates
 
-The shaped two-path result was 2.00 times one path. These values validate path
-use and scaling in this lab; they are not hardware sizing numbers.
+- Thin allocation, 1 GiB write allocation, and full discard reclamation.
+- Snapshot/rollback with exact checksum restoration.
+- Template, linked clone and full clone; linked-clone writes remained isolated.
+- Offline 4-to-5 GiB resize propagated to target and both nodes.
+- Online resize rejected before mutating the zvol.
+- Sixteen parallel allocation attempts from both nodes; the single pmxcfs lock
+  timeout was retried. All 19 observed identities had unique NSID and UUID,
+  followed by complete scratch cleanup.
+- A foreign zvol carrying a valid but different subsystem NQN was absent from
+  `pvesm list`, remained absent from configfs after a real reconcile, and was
+  destroyed without affecting owned namespaces.
+- Real ANA `optimized -> non-optimized -> optimized` transition under 370,259
+  operations and 1.516 GB written, with zero fio errors and zero short I/O.
 
-## Qualification still required per production platform
+## Path performance and fault injection
 
-Nested-virtualization results do not replace hardware qualification. Before a
-production rollout, repeat at least a 72-hour mixed-I/O soak on the intended
-NICs, switches, firmware, kernel, ZFS version, and workload; test controller,
-switch, cable, target reboot, initiator reboot, quorum loss, fencing, pool-full
-behavior, backup restore, and rolling upgrades. Record latency percentiles and
-recovery-time objectives, not only average bandwidth.
+Each path was shaped independently to 100 Mbit/s:
+
+| Scenario | Throughput | IOPS |
+|---|---:|---:|
+| Path A | 11.94 MB/s | 83.53 |
+| Path B | 11.99 MB/s | 83.98 |
+| A + B | 23.87 MB/s | 174.25 |
+| A + B unshaped | 91.47 MB/s | 691.23 |
+
+The dual shaped result was 1.999 times path A. This validates use of both paths,
+not production hardware sizing.
+
+- Path A cut for 12 seconds: no fio error.
+- Path B cut for 12 seconds: no fio error.
+- Both paths cut for 15 seconds with queue policy: resumed with valid checksum.
+- Long both-path outage under explicit fail-fast: expected EIO, two live paths
+  after recovery, and valid post-recovery checksum.
+
+## Migration and HA
+
+- node1 -> node2: 69 ms downtime, 7.775 s total.
+- node2 -> node1: 124 ms downtime, 8.375 s total.
+- migration to a destination with one path down: 645 ms downtime, 9.645 s
+  total; path restored afterward.
+- Hard loss of the active PVE node: QDevice kept survivor quorum, fencing was
+  acknowledged before restart, QEMU restarted at about 143 s and guest ping at
+  151 s.
+- Live corosync/QDevice partition with data paths still available: isolated
+  source self-fenced around 59 s. QEMU sampling every 200 ms showed a 91.151 s
+  writer gap and no writer overlap.
+
+## Target reboot qualification
+
+The first attempt exposed a provisioning issue: cloud-init on the storage host
+consumed the guest's `cidata` ZVOL. The target now disables cloud-init discovery
+after bootstrap and persists `nvmet_tcp`, hostname, SSH identity, and the ZFS
+pool cache.
+
+The next attempt exposed a code race: port links became reachable before every
+Host NQN ACL. The initiator received `host not allowed`, removed controllers and
+QEMU entered `io-error`. The guest disk was snapshotted and repaired offline;
+the failure is retained in the report.
+
+The backend now prepares ports privately, restores every configured Host NQN
+and DHCHAP key, reconciles namespaces, and publishes port links last. Repeating
+the reboot under verified guest I/O produced:
+
+- target ping down/up cycle 18.3 seconds;
+- 6 namespaces, 2 ACLs and 2 port links reconstructed;
+- both controllers on both nodes reconnected;
+- no `host not allowed`, controller removal, EIO, or QEMU pause;
+- guest loop advanced from 8 to 82 iterations and finished with valid SHA-256.
+
+## Upgrade gate
+
+APT attempted to replace the local same-version backend, manager, and docs with
+official artifacts. The transaction guard accepted the complete custom set and
+rejected all three official artifacts. A real `apt-get -y full-upgrade` exited
+100 before dpkg changed files; storage remained active. Permanent package holds
+are not used.
+
+## Remaining production qualification
+
+The code is a lab-qualified release candidate, not a hardware certification.
+Before rollout, run at least a 72-hour mixed-I/O soak on the intended platform,
+capture p50/p95/p99/p99.9 and workload RTO, inject physical NIC/cable/switch
+failures, exercise near-full/full-pool behavior, perform a complete backup
+restore, validate a rolling upgrade with exact candidates, decide TLS versus
+physical isolation, and complete upstream review.

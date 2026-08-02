@@ -1,0 +1,16 @@
+2026-08-02 00:45:36 conntrack state migration not supported or disabled, active connections might get dropped
+2026-08-02 00:45:36 starting migration of VM 920 to node 'pvenvme1' (192.168.34.242)
+2026-08-02 00:45:36 starting VM 920 on remote node 'pvenvme1'
+2026-08-02 00:45:40 start remote tunnel
+2026-08-02 00:45:41 ssh tunnel ver 1
+2026-08-02 00:45:41 starting online/live migration on unix:/run/qemu-server/920.migrate
+2026-08-02 00:45:41 set migration capabilities
+2026-08-02 00:45:41 migration downtime limit: 100 ms
+2026-08-02 00:45:41 migration cachesize: 128.0 MiB
+2026-08-02 00:45:41 set migration parameters
+2026-08-02 00:45:41 start migrate command to unix:/run/qemu-server/920.migrate
+2026-08-02 00:45:42 average migration speed: 1.0 GiB/s - downtime 124 ms
+2026-08-02 00:45:42 migration completed, transferred 417.8 MiB VM-state
+2026-08-02 00:45:42 migration status: completed
+2026-08-02 00:45:44 migration finished successfully (duration 00:00:08)
+migration_rc=0 elapsed_ms=8375

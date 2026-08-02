@@ -1,0 +1,23 @@
+zfsnvme-target
+  pool: tank
+ state: ONLINE
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	tank        ONLINE       0     0     0
+	  sdb       ONLINE       0     0     0
+
+errors: No known data errors
+/sys/kernel/config/nvmet/subsystems
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/passthru
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/allowed_hosts
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/allowed_hosts/nqn.2014-08.org.nvmexpress:uuid:2fe2c989-9d4b-444a-9766-600a7147918f
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/allowed_hosts/nqn.2014-08.org.nvmexpress:uuid:a28d3c57-1aff-4700-b4bf-2acde0333975
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/1
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/5
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/4
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/6
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/2
+/sys/kernel/config/nvmet/subsystems/nqn.2026-08.ar.neatech:zfsnvme-lab/namespaces/3
