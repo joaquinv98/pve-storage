@@ -203,6 +203,22 @@ is_deeply(
     'uses the QEMU host_device driver',
 );
 
+eval {
+    PVE::Storage::ZFSNVMePlugin->activate_volume(
+        'nvmetest',
+        $scfg,
+        'vm-100-disk-0',
+        'snapshot-with-hints',
+        {},
+        { 'guest-type' => 'qemu' },
+    );
+};
+like(
+    $@,
+    qr/unable to activate snapshot from remote zfs storage/,
+    'activate_volume accepts the current storage API hints argument',
+);
+
 my $lio_mock = Test::MockModule->new('PVE::Storage::LunCmd::LIO');
 my @provider_args;
 $lio_mock->redefine(

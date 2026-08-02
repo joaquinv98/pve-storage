@@ -772,7 +772,15 @@ sub qemu_blockdev_options($class, $scfg, $storeid, $volname, $machine_version, $
     return { driver => 'host_device', filename => $path };
 }
 
-sub activate_volume($class, $storeid, $scfg, $volname, $snapname, $cache = undef) {
+sub activate_volume(
+    $class,
+    $storeid,
+    $scfg,
+    $volname,
+    $snapname,
+    $cache = undef,
+    $hints = undef,
+) {
     die "unable to activate snapshot from remote zfs storage\n" if $snapname;
     my ($path) = $class->path($scfg, $volname, $storeid);
     if (!-b $path) {
